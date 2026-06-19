@@ -140,6 +140,72 @@ export interface User {
   role: string
 }
 
+// --- AI core ---------------------------------------------------------------
+
+export interface AiStatus {
+  ok: boolean
+  model: string
+  label: string
+  local: boolean
+  local_inference: boolean
+  base_url: string
+  detail?: string
+}
+
+export interface LeadAnalysis {
+  lead_id: number
+  summary: string | null
+  qualification: string | null
+  fit_score: number | null
+  next_action: string | null
+  talking_points: string | null // JSON string[]
+  risk_flags: string | null // JSON string[]
+  model: string | null
+  created_at: string
+}
+
+export interface Outreach {
+  id: number
+  lead_id: number
+  channel: string
+  subject: string | null
+  body: string
+  language: string
+  legal_basis: string | null
+  status: string
+  model: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface AgentStep {
+  tool: string
+  args: Record<string, unknown>
+  result: unknown
+}
+
+export interface ChatResponse {
+  thread_id: number
+  reply: string
+  steps: AgentStep[]
+}
+
+export interface AiThread {
+  id: number
+  title: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface InvoiceDraft {
+  kind: 'rechnung' | 'angebot'
+  title: string
+  intro: string
+  client_name: string | null
+  items: { description: string; quantity: number; unit: string; unit_price_cents: number }[]
+  notes: string
+}
+
 export type NewLead = Partial<
   Pick<
     Lead,

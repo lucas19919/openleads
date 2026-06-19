@@ -3,6 +3,7 @@ import { api } from './api'
 import type { Config, Lead, User } from './types'
 import { Login } from './components/Login'
 import { SuiteNav, type Module } from './components/SuiteNav'
+import { CopilotView } from './components/ai/CopilotView'
 import { LeadsView } from './components/LeadsView'
 import { InvoicesView } from './components/invoices/InvoicesView'
 import { SettingsView } from './components/invoices/SettingsView'
@@ -39,6 +40,7 @@ export default function App() {
   return (
     <div className="app">
       <SuiteNav module={module} setModule={setModule} user={user} onLogout={onLogout} />
+      {module === 'copilot' && <CopilotView />}
       {module === 'leads' && (
         <LeadsView
           config={config!}
