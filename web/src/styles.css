@@ -486,3 +486,28 @@ button:disabled { opacity: 0.55; cursor: default; }
   font-size: 13px; text-decoration: none;
 }
 .backup-link:hover { background: var(--accent-soft); border-color: var(--accent); }
+
+/* --- Offene Posten / Mahnwesen -------------------------------------------- */
+.dunning-legend {
+  margin-bottom: 16px; padding: 10px 14px; border: 1px solid var(--border);
+  border-radius: var(--radius); background: var(--accent-soft);
+  font-size: 13px; line-height: 1.5; color: var(--text);
+}
+.dunning-rate { color: var(--muted); font-size: 12px; }
+.dunning-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ghost-link {
+  display: inline-block; padding: 5px 10px; border: 1px solid var(--border);
+  border-radius: var(--radius); background: var(--surface); color: var(--text);
+  font-size: 12px; text-decoration: none;
+}
+.ghost-link:hover { background: var(--accent-soft); border-color: var(--accent); }
+.dunning-done { font-size: 12px; font-weight: 600; color: var(--ok); }
+.dunning-error { font-size: 12px; color: var(--danger); }
+
+/* --- KI Tages-Briefing (digest) ------------------------------------------- */
+.digest { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 18px; box-shadow: var(--shadow); margin-bottom: 14px; }
+.digest h2 { margin: 0 0 10px; font-size: 16px; color: var(--accent-dark); }
+.digest-list { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 10px; }
+.digest-item { line-height: 1.4; }
+.digest-title { font-weight: 600; }
+.digest-item .chip { margin-top: 4px; }

@@ -6,6 +6,7 @@ import { SuiteNav, type Module } from './components/SuiteNav'
 import { CopilotView } from './components/ai/CopilotView'
 import { LeadsView } from './components/LeadsView'
 import { InvoicesView } from './components/invoices/InvoicesView'
+import { OpenItemsView } from './components/invoices/OpenItemsView'
 import { SettingsView } from './components/invoices/SettingsView'
 import { ScraperView } from './components/scraper/ScraperView'
 
@@ -57,6 +58,7 @@ export default function App() {
           onPrefillHandled={() => setInvoiceLead(null)}
         />
       )}
+      {module === 'offene' && <OpenItemsView />}
       {module === 'scraper' && <ScraperView />}
       {module === 'settings' && <SettingsView />}
     </div>
