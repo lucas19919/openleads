@@ -486,6 +486,7 @@ button:disabled { opacity: 0.55; cursor: default; }
   font-size: 13px; text-decoration: none;
 }
 .backup-link:hover { background: var(--accent-soft); border-color: var(--accent); }
+.export-links { display: flex; flex-wrap: wrap; gap: 10px; }
 
 /* --- Offene Posten / Mahnwesen -------------------------------------------- */
 .dunning-legend {
