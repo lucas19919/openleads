@@ -37,12 +37,19 @@ AI-native German leads + Rechnungen tool. Branch: `claude/openleads-repo-setup-z
 - **Gated SMTP send** (`/api/ai/outreach/:id/send`): only status=freigegeben,
   Impressum + opt-out auto-appended, audited. 5 composition tests. ✅
 
-## Next queue (in priority order)
-1. **Mahnung PDF** (reuse pdfkit) + endpoint.
-2. **XRechnung / BR-DE** validation specifics (warnings) + profile note.
-3. **UI polish**: outreach "Senden" button (LeadDetail), semantic "KI-Suche" box
-   (LeadsView), reindex trigger.
-4. Smoke-test full HTTP boot (login → create → finalize → validate → backup).
+## Also done & verified (pushed)
+- **Mahnung PDF** (`/api/documents/:id/dunning/pdf`) — printable notice. ✅
+- **XRechnung/BR-DE** validation warnings + B2G note (new `notes` field). ✅
+- **UI polish**: outreach "Jetzt senden", semantic "KI-Suche", reindex. ✅
+- **Full HTTP smoke test** PASSED: login → settings → create → finalize
+  (RE-2026-0001) → validate (valid) → invoice PDF 31.9KB → Mahnung PDF 24.2KB →
+  backup 135KB → AI status/digest degrade gracefully. ✅
+
+## Next tier (optional, time permitting)
+1. **GoBD/DATEV export** (CSV) of invoices for the Steuerberater.
+2. More tests: agent/tools, semantic ranking, digest fallback.
+3. **Follow-up automation**: AI suggests recontact_at + drafts from pipeline state.
+4. Security/hardening pass (rate limiting on /ai/*, input caps).
 
 ## Conventions
 Dependency-light (Node built-ins + fetch). German UI. Strict TS. Money in cents.
