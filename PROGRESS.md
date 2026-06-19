@@ -45,11 +45,20 @@ AI-native German leads + Rechnungen tool. Branch: `claude/openleads-repo-setup-z
   (RE-2026-0001) → validate (valid) → invoice PDF 31.9KB → Mahnung PDF 24.2KB →
   backup 135KB → AI status/digest degrade gracefully. ✅
 
-## Next tier (optional, time permitting)
-1. **GoBD/DATEV export** (CSV) of invoices for the Steuerberater.
-2. More tests: agent/tools, semantic ranking, digest fallback.
-3. **Follow-up automation**: AI suggests recontact_at + drafts from pipeline state.
-4. Security/hardening pass (rate limiting on /ai/*, input caps).
+## Also done & verified (pushed)
+- **GoBD/DATEV export**: invoice journal CSV + DATEV booking CSV, date-range,
+  audited; configurable SKR03 accounts. 6 tests. ✅
+- **Security**: in-memory rate limiter on /api/ai/* (30/min/user) + 8k input
+  caps. ✅
+- Settings UI for export + DATEV accounts + Verzugszins (in progress/done).
+
+## Status: feature-complete v1
+26 api unit tests green; full HTTP smoke test green; web builds clean.
+
+## Optional later
+- Follow-up automation (AI proposes recontact_at from pipeline state).
+- Multi-user roles; XRechnung Leitweg-ID capture for B2G.
+- E2E/Playwright; container healthcheck.
 
 ## Conventions
 Dependency-light (Node built-ins + fetch). German UI. Strict TS. Money in cents.
