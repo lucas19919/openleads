@@ -241,6 +241,25 @@ export interface AiThread {
   updated_at: string
 }
 
+export interface DigestPriority {
+  title: string
+  why: string
+  action: string
+}
+
+export interface Digest {
+  headline: string
+  priorities: DigestPriority[]
+  ai: boolean
+  facts: {
+    new_leads: number
+    recontact_due: unknown[]
+    hot_leads: unknown[]
+    stale_leads: unknown[]
+    overdue: { count: number; total_claim_cents: number; worst_days: number }
+  }
+}
+
 export interface InvoiceDraft {
   kind: 'rechnung' | 'angebot'
   title: string

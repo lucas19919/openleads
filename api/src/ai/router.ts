@@ -4,6 +4,7 @@ import { getDocument, getSettings, replaceItems } from '../documents'
 import { audit } from '../audit'
 import { probe, AI, isLocalInference, AIError } from './provider'
 import { analyzeLead, draftOutreach, draftInvoiceFromText } from './leadIntel'
+import { buildDigest } from './digest'
 import { runAgent } from './agent'
 import type { ChatMessage } from './types'
 
@@ -32,6 +33,12 @@ export function registerAiRoutes(app: App, auth: MiddlewareHandler): void {
       label: AI.label || AI.model,
       local_inference: isLocalInference(),
     })
+  })
+
+  // Morning briefing: prioritised actions across pipeline + ledger.
+  app.get('/api/ai/digest', async (c) => {
+    const digest = await buildDigest()
+    return c.json({ digest })
   })
 
   // --- Copilot ------------------------------------------------------------

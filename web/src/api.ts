@@ -3,6 +3,7 @@ import type {
   AiThread,
   ChatResponse,
   Config,
+  Digest,
   Doc,
   DocItem,
   DunningComputation,
@@ -159,6 +160,7 @@ export const api = {
 
   // --- AI core ---
   aiStatus: () => req<AiStatus>('/ai/status'),
+  aiDigest: () => req<{ digest: Digest }>('/ai/digest'),
   aiChat: (message: string, thread_id?: number) =>
     req<ChatResponse>('/ai/chat', {
       method: 'POST',

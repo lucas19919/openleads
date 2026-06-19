@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../../api'
-import type { AgentStep, AiStatus } from '../../types'
+import type { AgentStep, AiStatus, Digest } from '../../types'
 
 interface ChatTurn {
   role: 'user' | 'assistant'
@@ -17,6 +17,7 @@ const SUGGESTIONS = [
 
 export function CopilotView() {
   const [status, setStatus] = useState<AiStatus | null>(null)
+  const [digest, setDigest] = useState<Digest | null>(null)
   const [turns, setTurns] = useState<ChatTurn[]>([])
   const [input, setInput] = useState('')
   const [threadId, setThreadId] = useState<number | undefined>()
@@ -26,6 +27,7 @@ export function CopilotView() {
 
   useEffect(() => {
     api.aiStatus().then(setStatus).catch(() => setStatus(null))
+    api.aiDigest().then((r) => setDigest(r.digest)).catch(() => {})
   }, [])
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -62,6 +64,26 @@ export function CopilotView() {
       </header>
 
       <div className="copilot-stream">
+        {turns.length === 0 && digest && (
+          <div className="digest">
+            <h2>{digest.headline}</h2>
+            {digest.priorities.length === 0 ? (
+              <p className="muted">Nichts Dringendes — guter Zeitpunkt für neue Leads.</p>
+            ) : (
+              <ol className="digest-list">
+                {digest.priorities.map((p, i) => (
+                  <li key={i} className="digest-item">
+                    <div className="digest-title">{p.title}</div>
+                    <div className="muted">{p.why}</div>
+                    <button className="chip" onClick={() => send(p.action)} disabled={busy}>
+                      → {p.action}
+                    </button>
+                  </li>
+                ))}
+              </ol>
+            )}
+          </div>
+        )}
         {turns.length === 0 && (
           <div className="copilot-empty">
             <p className="muted">Beispiele:</p>
