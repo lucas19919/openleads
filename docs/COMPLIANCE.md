@@ -45,5 +45,16 @@ Finalised invoices are hybrid **PDF/A-3 with embedded EN 16931 CII XML**
 (`src/facturx.ts`), Kleinunternehmer **§19 UStG** aware, with gapless numbering.
 
 Since 2025 German domestic B2B must be able to **receive** structured e-invoices
-(Wachstumschancengesetz); OpenLeads issues them by default. Roadmap: XRechnung
-profile for B2G and a built-in EN 16931 schema/Schematron validator.
+(Wachstumschancengesetz); OpenLeads issues them by default.
+
+Implemented:
+- **Built-in EN 16931 validator** (`src/validate.ts`): mandatory terms,
+  arithmetic consistency (BR-CO-*), VAT category rules (§19 vs standard),
+  seller USt-IdNr, plus German specifics (BR-DE) as warnings. See
+  `GET /api/documents/:id/validate`.
+- **Käuferreferenz / Leitweg-ID** (BT-10) capture, emitted in the CII XML — the
+  key field for **B2G / XRechnung** invoices to public authorities.
+- **GoBD / DATEV export** for the Steuerberater (`/api/export/*.csv`).
+
+Roadmap: full XRechnung Schematron (BR-DE-*) enforcement and an XRechnung-only
+(non-PDF) output variant.
