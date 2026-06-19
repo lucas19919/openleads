@@ -189,6 +189,11 @@ export const api = {
   aiThreads: () => req<{ threads: AiThread[] }>('/ai/threads'),
   analyzeLead: (id: number) =>
     req<{ analysis: LeadAnalysis }>(`/ai/leads/${id}/analyze`, { method: 'POST' }),
+  planFollowup: (id: number, apply = false) =>
+    req<{ suggestion: { recontact_at: string | null; days: number | null; reason: string; applied: boolean } }>(
+      `/ai/leads/${id}/followup`,
+      { method: 'POST', body: JSON.stringify({ apply }) },
+    ),
   draftOutreach: (id: number, channel: 'email' | 'letter' | 'call_script' = 'email') =>
     req<{ outreach: Outreach }>(`/ai/leads/${id}/outreach`, {
       method: 'POST',
