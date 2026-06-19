@@ -163,6 +163,17 @@ export function SettingsView() {
               </div>
             </div>
           </fieldset>
+
+          <fieldset className="doc-block">
+            <legend>Datensicherung</legend>
+            <p className="settings-hint">
+              Lade eine konsistente SQLite-Momentaufnahme deiner Datenbank herunter — die Sicherung
+              gehört dir als Betreiber/in.
+            </p>
+            <a className="backup-link" href={api.backupUrl()} download>
+              Backup herunterladen (.db)
+            </a>
+          </fieldset>
         </div>
       </div>
     </>

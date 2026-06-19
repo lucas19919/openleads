@@ -446,3 +446,43 @@ button:disabled { opacity: 0.55; cursor: default; }
   border-radius: var(--radius); background: var(--surface);
 }
 .outreach-card select { width: auto; padding: 4px 8px; font-size: 13px; }
+
+/* --- E-Rechnung validation panel ------------------------------------------ */
+.erechnung-panel {
+  margin-top: 12px; padding: 12px 14px; border: 1px solid var(--border);
+  border-radius: var(--radius); background: var(--surface);
+}
+.erechnung-badge {
+  display: inline-block; font-size: 13px; font-weight: 600;
+  padding: 4px 12px; border-radius: 999px; border: 1px solid var(--border);
+  margin-right: 10px;
+}
+.erechnung-ok { color: var(--ok); border-color: #bfe3cd; background: #eef8f1; }
+.erechnung-bad { color: var(--danger); border-color: #efc9c3; background: #fbeeec; }
+.erechnung-meta { font-size: 12px; color: var(--muted); }
+.erechnung-list { margin: 10px 0 0; padding-left: 0; list-style: none; }
+.erechnung-list li { font-size: 13px; line-height: 1.5; padding: 2px 0; }
+.erechnung-list code {
+  background: var(--accent-soft); padding: 1px 5px; border-radius: 5px; margin-right: 6px;
+}
+.erechnung-error { color: var(--danger); }
+.erechnung-warn { color: var(--warn); }
+
+/* --- KI-Rechnung aus Text ------------------------------------------------- */
+.ai-draft-box {
+  margin-bottom: 16px; padding: 14px; border: 1px solid var(--border);
+  border-radius: var(--radius); background: var(--surface);
+}
+.ai-draft-label { display: block; font-weight: 600; margin-bottom: 8px; }
+.ai-draft-text { width: 100%; resize: vertical; }
+.ai-draft-actions { display: flex; align-items: center; gap: 12px; margin-top: 10px; }
+.ai-draft-hint { font-size: 12px; color: var(--muted); }
+
+/* --- Settings: backup ----------------------------------------------------- */
+.settings-hint { margin: 0 0 10px; font-size: 13px; color: var(--muted); }
+.backup-link {
+  display: inline-block; padding: 7px 14px; border: 1px solid var(--border);
+  border-radius: var(--radius); background: var(--surface); color: var(--text);
+  font-size: 13px; text-decoration: none;
+}
+.backup-link:hover { background: var(--accent-soft); border-color: var(--accent); }

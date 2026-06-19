@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { api } from '../../api'
 import { euro, centsToInput, inputToCents, lineTotalCents } from '../../money'
 import { fmtDate } from '../../util'
-import type { Config, Doc, DocItem } from '../../types'
+import type { Config, Doc, DocItem, ValidationResult } from '../../types'
 
 const EMPTY_ITEM: DocItem = { description: '', quantity: 1, unit: 'Pauschal', unit_price_cents: 0 }
 
@@ -21,6 +21,9 @@ export function DocumentEditor({
   const [items, setItems] = useState<DocItem[]>([])
   const [saving, setSaving] = useState(false)
   const [dirty, setDirty] = useState(false)
+  const [validation, setValidation] = useState<ValidationResult | null>(null)
+  const [validating, setValidating] = useState(false)
+  const [validationError, setValidationError] = useState<string | null>(null)
 
   useEffect(() => {
     let active = true
@@ -119,6 +122,20 @@ export function DocumentEditor({
     onChanged()
   }
 
+  async function validate() {
+    setValidating(true)
+    setValidationError(null)
+    try {
+      const { validation } = await api.validateDocument(id)
+      setValidation(validation)
+    } catch (e) {
+      setValidation(null)
+      setValidationError(e instanceof Error ? e.message : 'Prüfung fehlgeschlagen.')
+    } finally {
+      setValidating(false)
+    }
+  }
+
   return (
     <div className="doc-editor">
       <div className="doc-editor-head">
@@ -146,6 +163,15 @@ export function DocumentEditor({
             → Rechnung
           </button>
         )}
+        {doc.kind === 'rechnung' && (
+          <button
+            onClick={validate}
+            disabled={validating}
+            title="Gegen die EN-16931-Regeln für E-Rechnungen prüfen (für festgeschriebene Rechnungen)"
+          >
+            {validating ? '…' : 'E-Rechnung prüfen'}
+          </button>
+        )}
       </div>
 
       {locked && (
@@ -153,6 +179,42 @@ export function DocumentEditor({
           Festgeschrieben am {doc.issue_date ? fmtDate(doc.issue_date) : '—'} · Nr. {doc.number}.
           Ausgestellte Dokumente sind unveränderlich (GoBD). Für Änderungen{' '}
           {isAngebot ? 'ein neues Angebot' : 'eine Storno-/Korrekturrechnung'} anlegen.
+        </div>
+      )}
+
+      {validationError && <div className="section-error">{validationError}</div>}
+
+      {validation && (
+        <div className="erechnung-panel">
+          {validation.valid && validation.errors.length === 0 ? (
+            <span className="erechnung-badge erechnung-ok">✓ Gültig (EN 16931)</span>
+          ) : (
+            <span className="erechnung-badge erechnung-bad">
+              Nicht konform ({validation.errors.length}{' '}
+              {validation.errors.length === 1 ? 'Fehler' : 'Fehler'})
+            </span>
+          )}
+          <span className="erechnung-meta">
+            Profil {validation.profile} · geprüft {fmtDate(validation.checked_at)}
+          </span>
+          {validation.errors.length > 0 && (
+            <ul className="erechnung-list">
+              {validation.errors.map((f, i) => (
+                <li key={`e${i}`} className="erechnung-error">
+                  <code>{f.rule}</code> {f.message}
+                </li>
+              ))}
+            </ul>
+          )}
+          {validation.warnings.length > 0 && (
+            <ul className="erechnung-list">
+              {validation.warnings.map((f, i) => (
+                <li key={`w${i}`} className="erechnung-warn">
+                  <code>{f.rule}</code> {f.message}
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
 
