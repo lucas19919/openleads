@@ -417,3 +417,32 @@ table.leads td.num, table.leads th.num { text-align: right; font-variant-numeric
 .copilot-input input { flex: 1; }
 .copilot-input button { background: var(--accent); border-color: var(--accent); color: #fff; padding: 7px 18px; }
 .copilot-input button:disabled { opacity: 0.5; cursor: default; }
+
+/* --- Lead detail: KI + DSGVO ---------------------------------------------- */
+button.danger { border-color: #efc9c3; background: #fbeeec; color: var(--danger); }
+button.danger:hover { background: #f7ddd8; }
+button:disabled { opacity: 0.55; cursor: default; }
+
+.ai-section { border-top: 1px solid var(--border); padding-top: 12px; }
+.ai-section .ai-badge { margin-right: 0; }
+
+.ai-analysis { margin-top: 10px; }
+.section-error {
+  margin-top: 8px; padding: 8px 10px; border-radius: var(--radius);
+  background: #fbeeec; border: 1px solid #efc9c3; color: var(--danger); font-size: 13px;
+}
+
+.qual-badge {
+  display: inline-block; font-size: 12px; font-weight: 600;
+  padding: 3px 10px; border-radius: 999px; border: 1px solid var(--border);
+}
+.qual-hot { color: var(--danger); border-color: #efc9c3; background: #fbeeec; }
+.qual-warm { color: var(--warn); border-color: #f0d8b8; background: #fdf4e7; }
+.qual-cold { color: var(--accent); border-color: #bcdfe6; background: var(--accent-soft); }
+.qual-disqualified { color: var(--muted); border-color: var(--border); background: #f1f3f5; }
+
+.outreach-card {
+  margin-top: 10px; padding: 10px 12px; border: 1px solid var(--border);
+  border-radius: var(--radius); background: var(--surface);
+}
+.outreach-card select { width: auto; padding: 4px 8px; font-size: 13px; }
