@@ -15,6 +15,7 @@ import type {
   ScraperStatus,
   Settings,
   User,
+  ValidationResult,
 } from './types'
 
 class ApiError extends Error {
@@ -132,6 +133,11 @@ export const api = {
   deleteDocument: (id: number) =>
     req<{ ok: true }>(`/documents/${id}`, { method: 'DELETE' }),
   pdfUrl: (id: number) => `/api/documents/${id}/pdf`,
+  validateDocument: (id: number) =>
+    req<{ validation: ValidationResult }>(`/documents/${id}/validate`),
+
+  // --- admin ---
+  backupUrl: () => '/api/admin/backup',
 
   // --- scraper ---
   scraperConfig: () => req<ScraperConfig>('/scraper/config'),

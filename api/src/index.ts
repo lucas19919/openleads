@@ -32,6 +32,9 @@ import {
   type DocItemInput,
 } from './documents'
 import { renderDocumentPdf, pdfFilename } from './pdf'
+import { validateInvoice } from './validate'
+import { snapshot, snapshotFilename } from './backup'
+import { audit } from './audit'
 import { registerAiRoutes } from './ai/router'
 import { registerDsgvoRoutes } from './dsgvo'
 
@@ -457,6 +460,13 @@ app.post('/api/documents/:id/finalize', requireAuth, (c) => {
   return c.json({ document: getDocument(id) })
 })
 
+// Validate a document against EN 16931 (Factur-X/ZUGFeRD) business rules.
+app.get('/api/documents/:id/validate', requireAuth, (c) => {
+  const doc = getDocument(Number(c.req.param('id')))
+  if (!doc) return c.json({ error: 'not found' }, 404)
+  return c.json({ validation: validateInvoice(doc, getSettings()) })
+})
+
 // Convert an Angebot into a draft Rechnung (copies client + items).
 app.post('/api/documents/:id/convert', requireAuth, (c) => {
   const id = Number(c.req.param('id'))
@@ -571,6 +581,16 @@ app.get('/api/scraper/status', requireAuth, (c) => {
     )
     .all() as unknown as Record<string, unknown>[]
   return c.json({ total, scraped, last, today, byStage, recent })
+})
+
+// --- admin: database backup (operator owns their data) ---------------------
+
+app.get('/api/admin/backup', requireAuth, (c) => {
+  const buf = snapshot()
+  audit({ actor: c.get('user').username, action: 'admin.backup', detail: { bytes: buf.length } })
+  c.header('Content-Type', 'application/octet-stream')
+  c.header('Content-Disposition', `attachment; filename="${snapshotFilename()}"`)
+  return c.body(buf as unknown as ArrayBuffer)
 })
 
 // --- AI core + DSGVO (registered with the app's auth middleware) -----------

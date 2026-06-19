@@ -140,6 +140,21 @@ export interface User {
   role: string
 }
 
+// --- e-invoice validation ---------------------------------------------------
+
+export interface ValidationFinding {
+  rule: string
+  message: string
+}
+
+export interface ValidationResult {
+  valid: boolean
+  profile: string
+  checked_at: string
+  errors: ValidationFinding[]
+  warnings: ValidationFinding[]
+}
+
 // --- AI core ---------------------------------------------------------------
 
 export interface AiStatus {
