@@ -511,3 +511,30 @@ button:disabled { opacity: 0.55; cursor: default; }
 .digest-item { line-height: 1.4; }
 .digest-title { font-weight: 600; }
 .digest-item .chip { margin-top: 4px; }
+
+/* --- Versand einer freigegebenen Ansprache -------------------------------- */
+.outreach-sent {
+  margin-top: 8px; font-size: 13px; font-weight: 600; color: var(--ok);
+}
+
+/* --- KI-Suche (semantische Lead-Suche) ------------------------------------ */
+.ai-search {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.ai-search .spacer { flex: 1; }
+.ai-search-input { flex: 1 1 280px; min-width: 200px; }
+
+.ai-results { display: flex; flex-direction: column; gap: 8px; }
+.ai-results-head {
+  display: flex; align-items: center; gap: 12px; margin-bottom: 4px;
+}
+.ai-result-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  width: 100%; text-align: left; padding: 12px 14px;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--surface); cursor: pointer;
+}
+.ai-result-row:hover { border-color: var(--accent); background: var(--accent-soft); }
+.ai-result-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ai-result-company { font-weight: 600; color: var(--text); }

@@ -81,6 +81,10 @@ export function LeadDetail({
   const [outreach, setOutreach] = useState<Outreach[]>([])
   const [drafting, setDrafting] = useState(false)
   const [outreachErr, setOutreachErr] = useState<string | null>(null)
+  // Versand pro Entwurf: laufender Sendevorgang, Erfolgs- und Fehlermeldung.
+  const [sendingId, setSendingId] = useState<number | null>(null)
+  const [sentTo, setSentTo] = useState<Record<number, string>>({})
+  const [sendErr, setSendErr] = useState<Record<number, string>>({})
 
   // DSGVO
   const [erasing, setErasing] = useState(false)
@@ -140,6 +144,26 @@ export function LeadDetail({
       setOutreach((prev) => prev.map((x) => (x.id === updated.id ? updated : x)))
     } catch (e) {
       setOutreachErr(errMsg(e))
+    }
+  }
+
+  async function sendOutreach(o: Outreach) {
+    setSendingId(o.id)
+    setSendErr((prev) => {
+      const next = { ...prev }
+      delete next[o.id]
+      return next
+    })
+    try {
+      const { to } = await api.sendOutreach(o.id)
+      setSentTo((prev) => ({ ...prev, [o.id]: to }))
+      setOutreach((prev) =>
+        prev.map((x) => (x.id === o.id ? { ...x, status: 'gesendet' } : x)),
+      )
+    } catch (e) {
+      setSendErr((prev) => ({ ...prev, [o.id]: errMsg(e) }))
+    } finally {
+      setSendingId(null)
     }
   }
 
@@ -407,7 +431,8 @@ export function LeadDetail({
                 </div>
                 <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
                   Entwürfe werden niemals automatisch versendet (UWG §7). Ein Mensch prüft und gibt
-                  jede Ansprache frei.
+                  jede Ansprache frei. Erst nach der Freigabe lässt sich „Jetzt senden" nutzen;
+                  Impressum und Abmelde-Hinweis (Opt-out) werden dabei automatisch angehängt.
                 </div>
                 {outreachErr && (
                   <div className="section-error" role="alert">
@@ -443,6 +468,27 @@ export function LeadDetail({
                       <div style={{ fontWeight: 600, marginTop: 6 }}>{o.subject}</div>
                     )}
                     <div style={{ whiteSpace: 'pre-wrap', marginTop: 4 }}>{o.body}</div>
+                    {o.status === 'freigegeben' && (
+                      <div style={{ marginTop: 10 }}>
+                        <button
+                          className="primary"
+                          disabled={sendingId === o.id}
+                          onClick={() => sendOutreach(o)}
+                        >
+                          {sendingId === o.id ? 'Sende…' : 'Jetzt senden'}
+                        </button>
+                      </div>
+                    )}
+                    {sentTo[o.id] && (
+                      <div className="outreach-sent" role="status">
+                        ✓ Gesendet an {sentTo[o.id]}
+                      </div>
+                    )}
+                    {sendErr[o.id] && (
+                      <div className="section-error" role="alert">
+                        {sendErr[o.id]}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>

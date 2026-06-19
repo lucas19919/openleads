@@ -153,6 +153,7 @@ export interface ValidationResult {
   checked_at: string
   errors: ValidationFinding[]
   warnings: ValidationFinding[]
+  notes?: ValidationFinding[]
 }
 
 // --- Mahnwesen (dunning) ----------------------------------------------------
