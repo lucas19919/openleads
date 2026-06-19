@@ -1,21 +1,33 @@
 # OpenLeads
 
-A small, **self-hostable suite for local web-agency / freelancer sales** — from
-finding a prospect to sending a compliant invoice. Three modules behind one
-login:
+A **self-hostable, AI-native suite for local web-agency / freelancer sales** —
+from finding a prospect to sending a compliant invoice. AI is not a bolt-on
+chatbot here: it **operates the product**. The modules, behind one login:
 
+- **KI-Cockpit** — a copilot that drives the whole suite through audited tools:
+  find and qualify leads, move pipeline stages, draft outreach, build invoices —
+  in plain German. Runs on **open-source models you self-host** (local Ollama by
+  default), so personal data never leaves your box.
 - **Leads** — an AI scraper finds local businesses with *outdated* websites,
   scores how outdated they are, and drops them into a CRM pipeline (kanban +
   table, stages, notes, callback dates, `.xlsx` import). Dedupes by domain.
+  Per-lead **AI qualification** and **outreach drafting** built in.
 - **Rechnungen** — build **Angebote** and **Rechnungen** with line items and
   download a print-ready PDF. A finalised invoice is a **ZUGFeRD / Factur-X
   e-invoice** (PDF/A-3 with embedded EN 16931 XML), Kleinunternehmer **§19 UStG**
-  aware, with gapless sequential numbering.
+  aware, with gapless numbering and a built-in **EN 16931 validator**. Plus
+  natural-language invoicing (describe the job → draft).
 - **Scraper** — a control panel for the search raster (trades × towns), the
   staleness threshold, and run limits, plus a status readout.
 
 > The UI is **German** and the invoicing targets **German** tax rules
 > (§19 UStG, ZUGFeRD). It's built for the DACH market.
+
+**DSGVO/UWG by construction:** self-hosted, on-prem AI inference, an append-only
+audit log, one-click data export (Art. 15/20) and erasure (Art. 17), a consent
+ledger, and an Art. 30 processing record. The AI never auto-sends — a human
+approves every outward message. See [`docs/AI.md`](docs/AI.md),
+[`docs/COMPLIANCE.md`](docs/COMPLIANCE.md), and the plan in [`ROADMAP.md`](ROADMAP.md).
 
 ## Why it exists
 
@@ -31,6 +43,7 @@ build step), a tiny Hono API, a Vite/React app, and pure-JS PDF generation.
 | `api/`    | [Hono](https://hono.dev) + Node built-in SQLite (`node:sqlite`)  |
 | `web/`    | React 19 + Vite (vanilla CSS)                                     |
 | `scraper/`| Node + `@anthropic-ai/sdk` (Claude web search)                   |
+| **AI core** | OpenAI-compatible (`fetch`) → **Ollama / vLLM**, open models, on-prem |
 | PDF       | `pdfkit` → PDF/A-3 + Factur-X (no native deps)                    |
 | Auth      | scrypt password hash + HMAC signed-cookie sessions (no deps)     |
 
