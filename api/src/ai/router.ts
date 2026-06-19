@@ -1,7 +1,8 @@
 import type { Hono, MiddlewareHandler } from 'hono'
-import { db, type LeadRow, type AiMessageRow } from '../db'
+import { db, type LeadRow, type AiMessageRow, type OutreachRow } from '../db'
 import { getDocument, getSettings, replaceItems } from '../documents'
 import { audit } from '../audit'
+import { composeOutreachEmail, sendMail, isMailConfigured } from '../mailer'
 import { probe, AI, isLocalInference, AIError } from './provider'
 import { analyzeLead, draftOutreach, draftInvoiceFromText } from './leadIntel'
 import { buildDigest } from './digest'
@@ -167,6 +168,33 @@ export function registerAiRoutes(app: App, auth: MiddlewareHandler): void {
     db.prepare(`UPDATE outreach SET ${sets.join(', ')} WHERE id = @id`).run(params)
     audit({ actor: c.get('user').username, action: 'ai.outreach_update', entity: 'outreach', entityId: id, detail: { status: b.status }, ip: clientIp(c) })
     return c.json({ outreach: db.prepare('SELECT * FROM outreach WHERE id = ?').get(id) })
+  })
+
+  // Send an APPROVED outreach draft. Hard gates: must be status 'freigegeben',
+  // lead must have an email. Impressum + opt-out are appended automatically.
+  // Never sends from a raw 'entwurf' — a human must approve first (UWG §7).
+  app.post('/api/ai/outreach/:id/send', async (c) => {
+    const id = Number(c.req.param('id'))
+    const o = db.prepare('SELECT * FROM outreach WHERE id = ?').get(id) as unknown as OutreachRow | undefined
+    if (!o) return c.json({ error: 'not found' }, 404)
+    if (o.channel !== 'email') return c.json({ error: 'Nur E-Mail-Entwürfe können versendet werden.' }, 400)
+    if (o.status !== 'freigegeben') {
+      return c.json({ error: 'Entwurf muss zuerst freigegeben werden (Vier-Augen-Prinzip).' }, 409)
+    }
+    if (!isMailConfigured()) return c.json({ error: 'SMTP ist nicht konfiguriert.' }, 400)
+    const lead = db.prepare('SELECT * FROM leads WHERE id = ?').get(o.lead_id) as unknown as LeadRow | undefined
+    if (!lead) return c.json({ error: 'Lead nicht gefunden' }, 404)
+    try {
+      const email = composeOutreachEmail(o, lead, getSettings())
+      const { messageId } = await sendMail(email)
+      db.prepare("UPDATE outreach SET status = 'gesendet', updated_at = datetime('now') WHERE id = ?").run(id)
+      db.prepare(`INSERT INTO lead_events (lead_id, actor, type, body) VALUES (?, ?, 'outreach_sent', ?)`)
+        .run(lead.id, c.get('user').username, `E-Mail gesendet an ${email.to}`)
+      audit({ actor: c.get('user').username, action: 'ai.outreach_send', entity: 'outreach', entityId: id, detail: { to: email.to, messageId }, ip: clientIp(c) })
+      return c.json({ ok: true, messageId, to: email.to })
+    } catch (e) {
+      return c.json({ error: (e as Error).message }, 502)
+    }
   })
 
   // --- Natural-language invoicing ----------------------------------------

@@ -187,6 +187,8 @@ export const api = {
       method: 'PATCH',
       body: JSON.stringify(patch),
     }),
+  sendOutreach: (id: number) =>
+    req<{ ok: true; messageId: string; to: string }>(`/ai/outreach/${id}/send`, { method: 'POST' }),
   draftInvoice: (text: string, opts: { create?: boolean; lead_id?: number } = {}) =>
     req<{ draft: InvoiceDraft; document?: Doc }>('/ai/invoice/draft', {
       method: 'POST',
