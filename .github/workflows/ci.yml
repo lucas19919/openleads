@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        pkg: [api, web, scraper]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install
+        run: npm ci || npm install
+        working-directory: ${{ matrix.pkg }}
+      - name: Typecheck
+        run: npx tsc --noEmit || npx tsc -b
+        working-directory: ${{ matrix.pkg }}
+      - name: Build (web only)
+        if: matrix.pkg == 'web'
+        run: npm run build
+        working-directory: web

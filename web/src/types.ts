@@ -1,0 +1,158 @@
+export interface Lead {
+  id: number
+  domain: string | null
+  company: string | null
+  trade: string | null
+  city: string | null
+  website: string | null
+  phone: string | null
+  email: string | null
+  mobile_friendly: number | null
+  tech: string | null
+  staleness_signal: string | null
+  score: number
+  priority: string
+  why_lead: string | null
+  stage: string
+  notes: string | null
+  assigned_to: string | null
+  recontact_at: string | null
+  source: string
+  created_at: string
+  updated_at: string
+}
+
+export interface LeadEvent {
+  id: number
+  lead_id: number
+  at: string
+  actor: string | null
+  type: string
+  from_stage: string | null
+  to_stage: string | null
+  body: string | null
+}
+
+export interface Config {
+  stages: string[]
+  priorities: string[]
+  docKinds: string[]
+  docStatuses: Record<string, string[]>
+}
+
+export interface Settings {
+  id: number
+  business_name: string | null
+  owner: string | null
+  address: string | null
+  zip: string | null
+  city: string | null
+  email: string | null
+  phone: string | null
+  website: string | null
+  tax_id: string | null
+  iban: string | null
+  bic: string | null
+  bank: string | null
+  small_business: number
+  vat_rate: number
+  payment_terms: number
+  rechnung_prefix: string
+  rechnung_next: number
+  angebot_prefix: string
+  angebot_next: number
+  scraper_trades: string | null
+  scraper_towns: string | null
+  scraper_min_score: number | null
+  scraper_max_pairs: number | null
+  scraper_per_pair: number | null
+}
+
+export interface ScraperConfig {
+  trades: string[]
+  towns: string[]
+  min_score: number
+  max_pairs: number
+  per_pair: number
+  using_defaults: { trades: boolean; towns: boolean }
+}
+
+export interface ScraperStatus {
+  total: number
+  scraped: number
+  last: string | null
+  today: number
+  byStage: { stage: string; n: number }[]
+  recent: {
+    id: number
+    company: string | null
+    trade: string | null
+    city: string | null
+    score: number
+    priority: string
+    created_at: string
+  }[]
+}
+
+export interface DocItem {
+  id?: number
+  document_id?: number
+  description: string | null
+  quantity: number
+  unit: string | null
+  unit_price_cents: number
+  sort?: number
+}
+
+export interface DocTotals {
+  net_cents: number
+  vat_cents: number
+  gross_cents: number
+}
+
+export interface Doc {
+  id: number
+  kind: string
+  number: string | null
+  lead_id: number | null
+  client_name: string | null
+  client_address: string | null
+  client_zip: string | null
+  client_city: string | null
+  client_email: string | null
+  title: string | null
+  intro: string | null
+  notes: string | null
+  status: string
+  issue_date: string | null
+  due_date: string | null
+  small_business: number
+  vat_rate: number
+  created_at: string
+  updated_at: string
+  items: DocItem[]
+  totals: DocTotals
+}
+
+export interface User {
+  id: number
+  username: string
+  role: string
+}
+
+export type NewLead = Partial<
+  Pick<
+    Lead,
+    | 'company'
+    | 'trade'
+    | 'city'
+    | 'website'
+    | 'phone'
+    | 'email'
+    | 'tech'
+    | 'staleness_signal'
+    | 'why_lead'
+    | 'priority'
+    | 'score'
+  >
+>

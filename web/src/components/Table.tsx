@@ -1,0 +1,69 @@
+import { fmtDate, isDue } from '../util'
+import type { Lead } from '../types'
+
+export function Table({
+  stages,
+  leads,
+  onOpen,
+  onMove,
+}: {
+  stages: string[]
+  leads: Lead[]
+  onOpen: (id: number) => void
+  onMove: (id: number, stage: string) => void
+}) {
+  return (
+    <div className="table-wrap">
+    <table className="leads">
+      <thead>
+        <tr>
+          <th>Firma</th>
+          <th>Gewerk</th>
+          <th>Ort</th>
+          <th>Score</th>
+          <th>Prio</th>
+          <th>Mobil</th>
+          <th>Telefon</th>
+          <th>Wiedervorlage</th>
+          <th>Phase</th>
+        </tr>
+      </thead>
+      <tbody>
+        {leads.map((l) => (
+          <tr key={l.id} onClick={() => onOpen(l.id)}>
+            <td>{l.company ?? '—'}</td>
+            <td>{l.trade ?? '—'}</td>
+            <td>{l.city ?? '—'}</td>
+            <td className="no-x">{l.score}</td>
+            <td>
+              <span className={`badge ${l.priority}`}>{l.priority}</span>
+            </td>
+            <td>
+              {l.mobile_friendly === 0 ? (
+                <span className="mobil-no">nein</span>
+              ) : l.mobile_friendly === 1 ? (
+                <span className="mobil-yes">ja</span>
+              ) : (
+                '—'
+              )}
+            </td>
+            <td>{l.phone ?? '—'}</td>
+            <td className={l.recontact_at && isDue(l.recontact_at) ? 'mobil-no' : undefined}>
+              {l.recontact_at ? fmtDate(l.recontact_at) : '—'}
+            </td>
+            <td onClick={(e) => e.stopPropagation()}>
+              <select value={l.stage} onChange={(e) => onMove(l.id, e.target.value)}>
+                {stages.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+    </div>
+  )
+}

@@ -1,0 +1,37 @@
+name: openleads
+
+# Pull a published image by setting OPENLEADS_IMAGE (e.g. in /opt/openleads/.env),
+# or just `docker compose build` to build the bundled Dockerfile locally.
+services:
+  api:
+    image: ${OPENLEADS_IMAGE:-openleads:latest}
+    build: .
+    restart: unless-stopped
+    env_file:
+      - ./api.env # SESSION_SECRET, SERVICE_TOKEN, WEB_ORIGIN
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0 # container-internal; host exposure is limited below
+      PORT: "8787"
+      DB_PATH: /data/leads.db
+      WEB_DIST: /app/web/dist
+    volumes:
+      - crm-data:/data # SQLite DB survives image updates
+    ports:
+      - "127.0.0.1:8787:8787" # only localhost — host nginx proxies the subdomain
+
+  # One-shot lead scraper. Not started by `up` (tools profile). Run it with:
+  #   docker compose --profile tools run --rm scraper
+  # Schedule it from host cron for a daily run.
+  scraper:
+    image: ${OPENLEADS_IMAGE:-openleads:latest}
+    profiles: ["tools"]
+    working_dir: /app/scraper
+    env_file:
+      - ./scraper.env # ANTHROPIC_API_KEY, CRM_SERVICE_TOKEN, MIN_SCORE
+    environment:
+      CRM_API_URL: http://api:8787
+    command: ["npm", "start"]
+
+volumes:
+  crm-data:
