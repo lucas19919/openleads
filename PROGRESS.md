@@ -19,15 +19,21 @@ AI-native German leads + Rechnungen tool. Branch: `claude/openleads-repo-setup-z
 - API: `cd api && npx tsc --noEmit`
 - Web: `cd web && npx tsc --noEmit && npm run build`
 
+## Also done & verified (pushed)
+- **Document editor UI**: EN 16931 validator panel, NL→invoice box, Settings
+  backup download. ✅
+- **Dunning (Mahnwesen)**: overdue detection, Mahnstufen, §288 BGB Verzugszinsen
+  + €40 Pauschale; endpoints + table + client. Interest math unit-verified. ✅
+
 ## Next queue (in priority order)
-1. **Document editor UI**: show validator result + NL→invoice box; "Backup" in
-   Settings; surface XRechnung note.
-2. **Dunning (Mahnwesen)**: overdue detection, Mahnstufen, Verzugszinsen.
+1. **Mahnwesen UI**: an "Offene Posten" view listing overdue invoices with
+   one-click Mahnung (uses api.overdueInvoices/previewDunning/raiseDunning).
+2. **AI daily digest** endpoint: prioritised next actions from pipeline +
+   recontact dates + overdue invoices (`/api/ai/digest`).
 3. **Semantic lead search**: local embeddings (OpenAI-compatible /embeddings).
-4. **Follow-up suggestions** from pipeline + recontact dates (AI digest endpoint).
-5. **SMTP send** for approved outreach (gated, opt-out tracked).
-6. **XRechnung** profile for B2G + Schematron-style deeper validation.
-7. Tests (vitest) for validate/facturx/agent; CI step to run them.
+4. **SMTP send** for approved outreach (gated, opt-out tracked, audited).
+5. **XRechnung** profile for B2G + Schematron-style deeper validation.
+6. Tests (vitest) for validate/facturx/dunning/agent; CI step to run them.
 
 ## Conventions
 Dependency-light (Node built-ins + fetch). German UI. Strict TS. Money in cents.
