@@ -25,7 +25,16 @@ export function verifyPassword(password: string, stored: string): boolean {
 
 // --- Stateless signed session tokens (HMAC over `uid.exp`) ---
 
-const SECRET = process.env.SESSION_SECRET ?? 'dev-insecure-secret-change-me'
+const DEV_SECRET = 'dev-insecure-secret-change-me'
+const SECRET = process.env.SESSION_SECRET ?? DEV_SECRET
+// Fail closed: a production instance must never run on the known default, or
+// session tokens could be forged. In dev we only warn.
+if (SECRET === DEV_SECRET) {
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('SESSION_SECRET ist nicht gesetzt — Start im Produktivbetrieb mit unsicherem Default verweigert.')
+  }
+  console.warn('⚠  SESSION_SECRET nicht gesetzt — unsicherer Entwicklungs-Default in Verwendung.')
+}
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30 // 30 days
 export const SESSION_TTL_S = SESSION_TTL_MS / 1000
 

@@ -378,3 +378,164 @@ table.leads td.num, table.leads th.num { text-align: right; font-variant-numeric
   .drawer-body, .drawer-head { padding: 14px; }
   .modal-card { padding: 18px; }
 }
+
+/* --- AI cockpit ----------------------------------------------------------- */
+.ai-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 999px;
+  border: 1px solid var(--border); background: var(--surface); color: var(--muted);
+  white-space: nowrap; margin-right: 12px;
+}
+.ai-badge .dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+.ai-badge-local { color: var(--ok); border-color: #bfe3cd; background: #eef8f1; }
+.ai-badge-cloud { color: var(--warn); border-color: #f0d8b8; background: #fdf4e7; }
+.ai-badge-off   { color: var(--danger); border-color: #efc9c3; background: #fbeeec; }
+
+.copilot { display: flex; flex-direction: column; height: calc(100vh - 52px); max-width: 920px; margin: 0 auto; width: 100%; padding: 0 20px; }
+.copilot-head { display: flex; align-items: flex-start; justify-content: space-between; padding: 20px 0 12px; gap: 16px; }
+.copilot-head h1 { margin: 0 0 2px; font-size: 20px; }
+.copilot-head .muted { margin: 0; color: var(--muted); }
+.copilot-stream { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding: 8px 0; }
+.copilot-empty { margin: auto 0; text-align: center; color: var(--muted); }
+.copilot-suggestions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 10px; }
+.chip { border: 1px solid var(--border); background: var(--surface); border-radius: 999px; padding: 7px 14px; font-size: 13px; color: var(--text); }
+.chip:hover { background: var(--accent-soft); border-color: var(--accent); }
+
+.bubble { max-width: 80%; padding: 10px 14px; border-radius: 14px; box-shadow: var(--shadow); line-height: 1.5; }
+.bubble-text { white-space: pre-wrap; }
+.bubble-user { align-self: flex-end; background: var(--accent); color: #fff; border-bottom-right-radius: 4px; }
+.bubble-assistant { align-self: flex-start; background: var(--surface); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
+.bubble-error { align-self: flex-start; background: #fbeeec; border: 1px solid #efc9c3; color: var(--danger); }
+.typing { color: var(--muted); font-style: italic; }
+
+.step-trail { margin-bottom: 6px; font-size: 12px; }
+.step-trail summary { cursor: pointer; color: var(--accent-dark); font-weight: 600; }
+.step-trail ul { margin: 6px 0 2px; padding-left: 16px; }
+.step-trail code { background: var(--accent-soft); padding: 1px 5px; border-radius: 5px; }
+
+.copilot-input { display: flex; gap: 8px; padding: 12px 0 18px; }
+.copilot-input input { flex: 1; }
+.copilot-input button { background: var(--accent); border-color: var(--accent); color: #fff; padding: 7px 18px; }
+.copilot-input button:disabled { opacity: 0.5; cursor: default; }
+
+/* --- Lead detail: KI + DSGVO ---------------------------------------------- */
+button.danger { border-color: #efc9c3; background: #fbeeec; color: var(--danger); }
+button.danger:hover { background: #f7ddd8; }
+button:disabled { opacity: 0.55; cursor: default; }
+
+.ai-section { border-top: 1px solid var(--border); padding-top: 12px; }
+.ai-section .ai-badge { margin-right: 0; }
+
+.ai-analysis { margin-top: 10px; }
+.section-error {
+  margin-top: 8px; padding: 8px 10px; border-radius: var(--radius);
+  background: #fbeeec; border: 1px solid #efc9c3; color: var(--danger); font-size: 13px;
+}
+
+.qual-badge {
+  display: inline-block; font-size: 12px; font-weight: 600;
+  padding: 3px 10px; border-radius: 999px; border: 1px solid var(--border);
+}
+.qual-hot { color: var(--danger); border-color: #efc9c3; background: #fbeeec; }
+.qual-warm { color: var(--warn); border-color: #f0d8b8; background: #fdf4e7; }
+.qual-cold { color: var(--accent); border-color: #bcdfe6; background: var(--accent-soft); }
+.qual-disqualified { color: var(--muted); border-color: var(--border); background: #f1f3f5; }
+
+.outreach-card {
+  margin-top: 10px; padding: 10px 12px; border: 1px solid var(--border);
+  border-radius: var(--radius); background: var(--surface);
+}
+.outreach-card select { width: auto; padding: 4px 8px; font-size: 13px; }
+
+/* --- E-Rechnung validation panel ------------------------------------------ */
+.erechnung-panel {
+  margin-top: 12px; padding: 12px 14px; border: 1px solid var(--border);
+  border-radius: var(--radius); background: var(--surface);
+}
+.erechnung-badge {
+  display: inline-block; font-size: 13px; font-weight: 600;
+  padding: 4px 12px; border-radius: 999px; border: 1px solid var(--border);
+  margin-right: 10px;
+}
+.erechnung-ok { color: var(--ok); border-color: #bfe3cd; background: #eef8f1; }
+.erechnung-bad { color: var(--danger); border-color: #efc9c3; background: #fbeeec; }
+.erechnung-meta { font-size: 12px; color: var(--muted); }
+.erechnung-list { margin: 10px 0 0; padding-left: 0; list-style: none; }
+.erechnung-list li { font-size: 13px; line-height: 1.5; padding: 2px 0; }
+.erechnung-list code {
+  background: var(--accent-soft); padding: 1px 5px; border-radius: 5px; margin-right: 6px;
+}
+.erechnung-error { color: var(--danger); }
+.erechnung-warn { color: var(--warn); }
+
+/* --- KI-Rechnung aus Text ------------------------------------------------- */
+.ai-draft-box {
+  margin-bottom: 16px; padding: 14px; border: 1px solid var(--border);
+  border-radius: var(--radius); background: var(--surface);
+}
+.ai-draft-label { display: block; font-weight: 600; margin-bottom: 8px; }
+.ai-draft-text { width: 100%; resize: vertical; }
+.ai-draft-actions { display: flex; align-items: center; gap: 12px; margin-top: 10px; }
+.ai-draft-hint { font-size: 12px; color: var(--muted); }
+
+/* --- Settings: backup ----------------------------------------------------- */
+.settings-hint { margin: 0 0 10px; font-size: 13px; color: var(--muted); }
+.backup-link {
+  display: inline-block; padding: 7px 14px; border: 1px solid var(--border);
+  border-radius: var(--radius); background: var(--surface); color: var(--text);
+  font-size: 13px; text-decoration: none;
+}
+.backup-link:hover { background: var(--accent-soft); border-color: var(--accent); }
+.export-links { display: flex; flex-wrap: wrap; gap: 10px; }
+
+/* --- Offene Posten / Mahnwesen -------------------------------------------- */
+.dunning-legend {
+  margin-bottom: 16px; padding: 10px 14px; border: 1px solid var(--border);
+  border-radius: var(--radius); background: var(--accent-soft);
+  font-size: 13px; line-height: 1.5; color: var(--text);
+}
+.dunning-rate { color: var(--muted); font-size: 12px; }
+.dunning-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ghost-link {
+  display: inline-block; padding: 5px 10px; border: 1px solid var(--border);
+  border-radius: var(--radius); background: var(--surface); color: var(--text);
+  font-size: 12px; text-decoration: none;
+}
+.ghost-link:hover { background: var(--accent-soft); border-color: var(--accent); }
+.dunning-done { font-size: 12px; font-weight: 600; color: var(--ok); }
+.dunning-error { font-size: 12px; color: var(--danger); }
+
+/* --- KI Tages-Briefing (digest) ------------------------------------------- */
+.digest { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 18px; box-shadow: var(--shadow); margin-bottom: 14px; }
+.digest h2 { margin: 0 0 10px; font-size: 16px; color: var(--accent-dark); }
+.digest-list { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 10px; }
+.digest-item { line-height: 1.4; }
+.digest-title { font-weight: 600; }
+.digest-item .chip { margin-top: 4px; }
+
+/* --- Versand einer freigegebenen Ansprache -------------------------------- */
+.outreach-sent {
+  margin-top: 8px; font-size: 13px; font-weight: 600; color: var(--ok);
+}
+
+/* --- KI-Suche (semantische Lead-Suche) ------------------------------------ */
+.ai-search {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.ai-search .spacer { flex: 1; }
+.ai-search-input { flex: 1 1 280px; min-width: 200px; }
+
+.ai-results { display: flex; flex-direction: column; gap: 8px; }
+.ai-results-head {
+  display: flex; align-items: center; gap: 12px; margin-bottom: 4px;
+}
+.ai-result-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  width: 100%; text-align: left; padding: 12px 14px;
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--surface); cursor: pointer;
+}
+.ai-result-row:hover { border-color: var(--accent); background: var(--accent-soft); }
+.ai-result-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ai-result-company { font-weight: 600; color: var(--text); }

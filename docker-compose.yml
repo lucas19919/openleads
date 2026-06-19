@@ -7,14 +7,21 @@ services:
     image: ${OPENLEADS_IMAGE:-openleads:latest}
     build: .
     restart: unless-stopped
+    # api.env holds: SESSION_SECRET, SERVICE_TOKEN, WEB_ORIGIN, and (optional)
+    # the AI core + mail vars: AI_BASE_URL, AI_MODEL, AI_API_KEY, AI_EMBED_MODEL,
+    # SMTP_HOST/PORT/USER/PASS/FROM. See api/.env.example for the full list.
     env_file:
-      - ./api.env # SESSION_SECRET, SERVICE_TOKEN, WEB_ORIGIN
+      - ./api.env
     environment:
       NODE_ENV: production
       HOST: 0.0.0.0 # container-internal; host exposure is limited below
       PORT: "8787"
       DB_PATH: /data/leads.db
       WEB_DIST: /app/web/dist
+    # Reach an Ollama running on the *host* (the on-prem AI default) from inside
+    # the container via this name; set AI_BASE_URL=http://host.docker.internal:11434/v1
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - crm-data:/data # SQLite DB survives image updates
     ports:

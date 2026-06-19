@@ -66,6 +66,9 @@ export interface Settings {
   scraper_min_score: number | null
   scraper_max_pairs: number | null
   scraper_per_pair: number | null
+  verzug_base_rate?: number
+  datev_revenue_account?: string | null
+  datev_debitor_account?: string | null
 }
 
 export interface ScraperConfig {
@@ -128,6 +131,7 @@ export interface Doc {
   due_date: string | null
   small_business: number
   vat_rate: number
+  buyer_reference?: string | null
   created_at: string
   updated_at: string
   items: DocItem[]
@@ -138,6 +142,141 @@ export interface User {
   id: number
   username: string
   role: string
+}
+
+// --- e-invoice validation ---------------------------------------------------
+
+export interface ValidationFinding {
+  rule: string
+  message: string
+}
+
+export interface ValidationResult {
+  valid: boolean
+  profile: string
+  checked_at: string
+  errors: ValidationFinding[]
+  warnings: ValidationFinding[]
+  notes?: ValidationFinding[]
+}
+
+// --- Mahnwesen (dunning) ----------------------------------------------------
+
+export interface DunningComputation {
+  document_id: number
+  number: string | null
+  client_name: string | null
+  gross_cents: number
+  issue_date: string | null
+  due_date: string | null
+  days_overdue: number
+  suggested_level: number
+  interest_rate_percent: number
+  interest_cents: number
+  pauschale_cents: number
+  total_claim_cents: number
+}
+
+export interface Mahnung {
+  id: number
+  document_id: number
+  level: number
+  days_overdue: number
+  interest_cents: number
+  pauschale_cents: number
+  total_claim_cents: number
+  note: string | null
+  created_at: string
+}
+
+// --- AI core ---------------------------------------------------------------
+
+export interface AiStatus {
+  ok: boolean
+  model: string
+  label: string
+  local: boolean
+  local_inference: boolean
+  base_url: string
+  detail?: string
+}
+
+export interface LeadAnalysis {
+  lead_id: number
+  summary: string | null
+  qualification: string | null
+  fit_score: number | null
+  next_action: string | null
+  talking_points: string | null // JSON string[]
+  risk_flags: string | null // JSON string[]
+  model: string | null
+  created_at: string
+}
+
+export interface Outreach {
+  id: number
+  lead_id: number
+  channel: string
+  subject: string | null
+  body: string
+  language: string
+  legal_basis: string | null
+  status: string
+  model: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface SemanticHit {
+  lead: Lead
+  score: number
+}
+
+export interface AgentStep {
+  tool: string
+  args: Record<string, unknown>
+  result: unknown
+}
+
+export interface ChatResponse {
+  thread_id: number
+  reply: string
+  steps: AgentStep[]
+}
+
+export interface AiThread {
+  id: number
+  title: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface DigestPriority {
+  title: string
+  why: string
+  action: string
+}
+
+export interface Digest {
+  headline: string
+  priorities: DigestPriority[]
+  ai: boolean
+  facts: {
+    new_leads: number
+    recontact_due: unknown[]
+    hot_leads: unknown[]
+    stale_leads: unknown[]
+    overdue: { count: number; total_claim_cents: number; worst_days: number }
+  }
+}
+
+export interface InvoiceDraft {
+  kind: 'rechnung' | 'angebot'
+  title: string
+  intro: string
+  client_name: string | null
+  items: { description: string; quantity: number; unit: string; unit_price_cents: number }[]
+  notes: string
 }
 
 export type NewLead = Partial<

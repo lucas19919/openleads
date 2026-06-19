@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api } from '../api'
 import { isDue } from '../util'
-import type { Config, Lead } from '../types'
+import type { Config, Lead, SemanticHit } from '../types'
 import { Toolbar } from './Toolbar'
 import { Board } from './Board'
 import { Table } from './Table'
@@ -26,6 +26,16 @@ export function LeadsView({
   const [showNew, setShowNew] = useState(false)
   const [importing, setImporting] = useState(false)
   const [recontactOnly, setRecontactOnly] = useState(false)
+
+  // KI-Suche (semantische Suche). Solange Ergebnisse vorliegen, ersetzen sie die
+  // normale Liste; null bedeutet: keine KI-Suche aktiv -> normale Ansicht.
+  const [aiQuery, setAiQuery] = useState('')
+  const [aiSearching, setAiSearching] = useState(false)
+  const [aiHits, setAiHits] = useState<SemanticHit[] | null>(null)
+  const [aiMode, setAiMode] = useState<'semantic' | 'fallback' | null>(null)
+  const [aiErr, setAiErr] = useState<string | null>(null)
+  const [reindexing, setReindexing] = useState(false)
+  const [reindexNote, setReindexNote] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
     const { leads } = await api.listLeads()
@@ -65,6 +75,45 @@ export function LeadsView({
     }
   }
 
+  async function runAiSearch() {
+    const query = aiQuery.trim()
+    if (!query) return
+    setAiSearching(true)
+    setAiErr(null)
+    try {
+      const { mode, hits } = await api.semanticSearch(query)
+      setAiMode(mode)
+      setAiHits(hits)
+    } catch (e) {
+      setAiErr(e instanceof Error ? e.message : 'Unbekannter Fehler')
+      setAiHits(null)
+      setAiMode(null)
+    } finally {
+      setAiSearching(false)
+    }
+  }
+
+  function clearAiSearch() {
+    setAiQuery('')
+    setAiHits(null)
+    setAiMode(null)
+    setAiErr(null)
+  }
+
+  async function reindex() {
+    setReindexing(true)
+    setReindexNote(null)
+    setAiErr(null)
+    try {
+      const { indexed, model } = await api.reindexLeads()
+      setReindexNote(`${indexed} Leads neu indexiert (${model}).`)
+    } catch (e) {
+      setAiErr(e instanceof Error ? e.message : 'Unbekannter Fehler')
+    } finally {
+      setReindexing(false)
+    }
+  }
+
   const dueCount = leads.filter((l) => isDue(l.recontact_at)).length
 
   const q = search.trim().toLowerCase()
@@ -95,7 +144,73 @@ export function LeadsView({
         importing={importing}
       />
       <div className="content">
-        {leads.length === 0 ? (
+        <div className="ai-search">
+          <span className="ai-badge ai-badge-cloud">KI</span>
+          <input
+            className="search ai-search-input"
+            placeholder="KI-Suche: z. B. „Dachdecker ohne Website in der Nähe von Köln“"
+            value={aiQuery}
+            onChange={(e) => setAiQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') runAiSearch()
+            }}
+          />
+          <button className="primary" disabled={aiSearching || !aiQuery.trim()} onClick={runAiSearch}>
+            {aiSearching ? 'Suche…' : 'KI-Suche'}
+          </button>
+          {aiHits !== null && (
+            <button className="ghost" onClick={clearAiSearch}>
+              Zurücksetzen
+            </button>
+          )}
+          <div className="spacer" />
+          <button className="ghost-link" disabled={reindexing} onClick={reindex}>
+            {reindexing ? 'Indexiere…' : 'Neu indexieren'}
+          </button>
+        </div>
+        {reindexNote && (
+          <div className="muted" style={{ fontSize: 12, marginBottom: 8 }}>
+            {reindexNote}
+          </div>
+        )}
+        {aiErr && (
+          <div className="section-error" role="alert">
+            {aiErr}
+          </div>
+        )}
+
+        {aiHits !== null ? (
+          <div className="ai-results">
+            <div className="ai-results-head">
+              <span className="user-chip">{aiHits.length} Treffer</span>
+              {aiMode === 'fallback' && (
+                <span className="muted" style={{ fontSize: 12 }}>
+                  Textsuche — KI-Modell offline
+                </span>
+              )}
+            </div>
+            {aiHits.length === 0 ? (
+              <div className="center-muted">Keine passenden Leads gefunden.</div>
+            ) : (
+              aiHits.map(({ lead, score }) => (
+                <button
+                  type="button"
+                  className="ai-result-row"
+                  key={lead.id}
+                  onClick={() => setSelectedId(lead.id)}
+                >
+                  <div className="ai-result-main">
+                    <span className="ai-result-company">{lead.company ?? 'Lead'}</span>
+                    <span className="muted">
+                      {[lead.trade, lead.city].filter(Boolean).join(' · ') || '—'}
+                    </span>
+                  </div>
+                  <span className="chip">{Math.round(score * 100)}%</span>
+                </button>
+              ))
+            )}
+          </div>
+        ) : leads.length === 0 ? (
           <div className="center-muted">
             Noch keine Leads. Der Scraper füllt sie automatisch — oder lege manuell
             einen an („+ Lead").

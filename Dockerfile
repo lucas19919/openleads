@@ -36,5 +36,8 @@ ENV NODE_ENV=production \
 
 WORKDIR /app/api
 EXPOSE 8787
+# Liveness: the API exposes an unauthenticated /api/health.
+HEALTHCHECK --interval=30s --timeout=4s --start-period=20s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||8787)+'/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 # Default command runs the API. The scraper service overrides this.
 CMD ["npm", "start"]

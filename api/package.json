@@ -6,17 +6,21 @@
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
     "seed": "tsx scripts/set-password.ts",
-    "import": "tsx scripts/import-xlsx.ts"
+    "import": "tsx scripts/import-xlsx.ts",
+    "backup": "tsx scripts/backup.ts",
+    "test": "node --import tsx --test --test-concurrency=1 src/documents.test.ts src/validate.test.ts src/dunning.test.ts src/facturx.test.ts src/mailer.test.ts src/export.test.ts src/followup.test.ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.7",
     "exceljs": "^4.4.0",
     "hono": "^4.6.14",
+    "nodemailer": "^9.0.1",
     "pdfkit": "^0.15.2",
     "tsx": "^4.19.2"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
+    "@types/nodemailer": "^8.0.1",
     "@types/pdfkit": "^0.13.9",
     "typescript": "^5.7.2"
   }

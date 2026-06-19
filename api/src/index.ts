@@ -32,6 +32,14 @@ import {
   type DocItemInput,
 } from './documents'
 import { renderDocumentPdf, pdfFilename } from './pdf'
+import { renderMahnungPdf, mahnungPdfFilename } from './mahnungPdf'
+import { validateInvoice } from './validate'
+import { listOverdue, computeDunning, levelLabel } from './dunning'
+import { snapshot, snapshotFilename } from './backup'
+import { finalisedInvoices, invoicesCsv, datevCsv, exportFilename } from './export'
+import { audit } from './audit'
+import { registerAiRoutes } from './ai/router'
+import { registerDsgvoRoutes } from './dsgvo'
 
 type Vars = { user: Pick<UserRow, 'id' | 'username' | 'role'> }
 const app = new Hono<{ Variables: Vars }>()
@@ -296,7 +304,8 @@ const SETTINGS_FIELDS = new Set([
   'website', 'tax_id', 'iban', 'bic', 'bank', 'small_business', 'vat_rate',
   'payment_terms', 'rechnung_prefix', 'rechnung_next', 'angebot_prefix',
   'angebot_next', 'scraper_trades', 'scraper_towns', 'scraper_min_score',
-  'scraper_max_pairs', 'scraper_per_pair',
+  'scraper_max_pairs', 'scraper_per_pair', 'verzug_base_rate',
+  'datev_revenue_account', 'datev_debitor_account',
 ])
 
 app.get('/api/settings', requireAuth, (c) => c.json({ settings: getSettings() }))
@@ -401,7 +410,7 @@ app.post('/api/documents', requireAuth, async (c) => {
 
 const DOC_EDITABLE = new Set([
   'client_name', 'client_address', 'client_zip', 'client_city', 'client_email',
-  'title', 'intro', 'notes', 'due_date', 'small_business', 'vat_rate',
+  'title', 'intro', 'notes', 'due_date', 'small_business', 'vat_rate', 'buyer_reference',
 ])
 
 app.patch('/api/documents/:id', requireAuth, async (c) => {
@@ -453,6 +462,62 @@ app.post('/api/documents/:id/finalize', requireAuth, (c) => {
      WHERE id = ?`,
   ).run(number, today, doc.kind === 'rechnung' ? due : null, id)
   return c.json({ document: getDocument(id) })
+})
+
+// Validate a document against EN 16931 (Factur-X/ZUGFeRD) business rules.
+app.get('/api/documents/:id/validate', requireAuth, (c) => {
+  const doc = getDocument(Number(c.req.param('id')))
+  if (!doc) return c.json({ error: 'not found' }, 404)
+  return c.json({ validation: validateInvoice(doc, getSettings()) })
+})
+
+// --- Mahnwesen (dunning) ---------------------------------------------------
+
+// All sent, unpaid, past-due invoices with computed Verzugszinsen + Mahnstufe.
+app.get('/api/invoices/overdue', requireAuth, (c) => {
+  return c.json({ overdue: listOverdue() })
+})
+
+// Preview/raise a Mahnung for an invoice. POST persists a record; GET previews.
+app.get('/api/documents/:id/dunning', requireAuth, (c) => {
+  const doc = getDocument(Number(c.req.param('id')))
+  if (!doc) return c.json({ error: 'not found' }, 404)
+  const level = c.req.query('level') != null ? Number(c.req.query('level')) : undefined
+  const history = db
+    .prepare('SELECT * FROM mahnungen WHERE document_id = ? ORDER BY created_at DESC')
+    .all(doc.id)
+  return c.json({ preview: computeDunning(doc, getSettings(), level), history })
+})
+
+app.post('/api/documents/:id/dunning', requireAuth, async (c) => {
+  const doc = getDocument(Number(c.req.param('id')))
+  if (!doc) return c.json({ error: 'not found' }, 404)
+  if (doc.kind !== 'rechnung' || !doc.number) {
+    return c.json({ error: 'Nur für ausgestellte Rechnungen.' }, 400)
+  }
+  const b = (await c.req.json().catch(() => ({}))) as { level?: number; note?: string }
+  const d = computeDunning(doc, getSettings(), b.level)
+  const info = db.prepare(
+    `INSERT INTO mahnungen (document_id, level, days_overdue, interest_cents, pauschale_cents, total_claim_cents, note)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  ).run(doc.id, d.suggested_level, d.days_overdue, d.interest_cents, d.pauschale_cents, d.total_claim_cents, b.note ?? levelLabel(d.suggested_level))
+  audit({ actor: c.get('user').username, action: 'invoice.dunning', entity: 'document', entityId: doc.id, detail: { level: d.suggested_level, total_claim_cents: d.total_claim_cents } })
+  const row = db.prepare('SELECT * FROM mahnungen WHERE id = ?').get(Number(info.lastInsertRowid))
+  return c.json({ mahnung: row, computation: d, label: levelLabel(d.suggested_level) }, 201)
+})
+
+// Download a Mahnung (dunning notice) for an invoice as a PDF.
+app.get('/api/documents/:id/dunning/pdf', requireAuth, async (c) => {
+  const doc = getDocument(Number(c.req.param('id')))
+  if (!doc || doc.kind !== 'rechnung' || !doc.number) return c.json({ error: 'not found' }, 404)
+  const level = c.req.query('level') != null ? Number(c.req.query('level')) : undefined
+  const s = getSettings()
+  const comp = computeDunning(doc, s, level)
+  const lvl = level ?? comp.suggested_level
+  const buf = await renderMahnungPdf(doc, s, comp, lvl)
+  c.header('Content-Type', 'application/pdf')
+  c.header('Content-Disposition', `inline; filename="${mahnungPdfFilename(doc, lvl)}"`)
+  return c.body(buf as unknown as ArrayBuffer)
 })
 
 // Convert an Angebot into a draft Rechnung (copies client + items).
@@ -570,6 +635,46 @@ app.get('/api/scraper/status', requireAuth, (c) => {
     .all() as unknown as Record<string, unknown>[]
   return c.json({ total, scraped, last, today, byStage, recent })
 })
+
+// --- exports for the Steuerberater (GoBD invoice journal + DATEV bookings) --
+
+function csvResponse(c: Context<{ Variables: Vars }>, body: string, filename: string) {
+  c.header('Content-Type', 'text/csv; charset=utf-8')
+  c.header('Content-Disposition', `attachment; filename="${filename}"`)
+  // BOM so Excel opens UTF-8 (umlauts) correctly.
+  return c.body('﻿' + body)
+}
+
+app.get('/api/export/invoices.csv', requireAuth, (c) => {
+  const from = c.req.query('from')
+  const to = c.req.query('to')
+  const invoices = finalisedInvoices(from, to)
+  audit({ actor: c.get('user').username, action: 'export.invoices', detail: { from, to, count: invoices.length } })
+  return csvResponse(c, invoicesCsv(invoices), exportFilename('rechnungen', from, to))
+})
+
+app.get('/api/export/datev.csv', requireAuth, (c) => {
+  const from = c.req.query('from')
+  const to = c.req.query('to')
+  const invoices = finalisedInvoices(from, to)
+  audit({ actor: c.get('user').username, action: 'export.datev', detail: { from, to, count: invoices.length } })
+  return csvResponse(c, datevCsv(invoices, getSettings()), exportFilename('datev', from, to))
+})
+
+// --- admin: database backup (operator owns their data) ---------------------
+
+app.get('/api/admin/backup', requireAuth, (c) => {
+  const buf = snapshot()
+  audit({ actor: c.get('user').username, action: 'admin.backup', detail: { bytes: buf.length } })
+  c.header('Content-Type', 'application/octet-stream')
+  c.header('Content-Disposition', `attachment; filename="${snapshotFilename()}"`)
+  return c.body(buf as unknown as ArrayBuffer)
+})
+
+// --- AI core + DSGVO (registered with the app's auth middleware) -----------
+
+registerAiRoutes(app, requireAuth)
+registerDsgvoRoutes(app, requireAuth)
 
 // --- health ---------------------------------------------------------------
 

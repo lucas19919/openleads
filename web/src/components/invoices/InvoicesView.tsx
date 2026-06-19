@@ -19,6 +19,9 @@ export function InvoicesView({
   const [docs, setDocs] = useState<Doc[]>([])
   const [filter, setFilter] = useState<'all' | 'angebot' | 'rechnung'>('all')
   const [openId, setOpenId] = useState<number | null>(null)
+  const [draftText, setDraftText] = useState('')
+  const [drafting, setDrafting] = useState(false)
+  const [draftError, setDraftError] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
     const { documents } = await api.listDocuments()
@@ -56,6 +59,27 @@ export function InvoicesView({
     const { document } = await api.createDocument({ kind })
     await refresh()
     setOpenId(document.id)
+  }
+
+  async function generateDraft() {
+    const text = draftText.trim()
+    if (!text) return
+    setDrafting(true)
+    setDraftError(null)
+    try {
+      const { document } = await api.draftInvoice(text, { create: true })
+      if (!document) {
+        setDraftError('Es wurde kein Entwurf erstellt. Bitte Beschreibung präzisieren.')
+        return
+      }
+      setDraftText('')
+      await refresh()
+      setOpenId(document.id)
+    } catch (e) {
+      setDraftError(e instanceof Error ? e.message : 'Entwurf konnte nicht erzeugt werden.')
+    } finally {
+      setDrafting(false)
+    }
   }
 
   async function remove(id: number) {
@@ -109,6 +133,32 @@ export function InvoicesView({
       </div>
 
       <div className="content">
+        <div className="ai-draft-box">
+          <label className="ai-draft-label">KI-Rechnung aus Text</label>
+          <textarea
+            className="ai-draft-text"
+            rows={3}
+            value={draftText}
+            disabled={drafting}
+            placeholder="Beschreibe den Auftrag, z. B.: Rechnung an Müller GmbH, Berlin, für 8 Stunden Beratung à 95 € und Anfahrt pauschal 40 €."
+            onChange={(e) => setDraftText(e.target.value)}
+          />
+          <div className="ai-draft-actions">
+            <span className="ai-draft-hint">
+              Beträge werden als Netto-Cent interpretiert — bitte vor dem Festschreiben prüfen.
+            </span>
+            <div className="spacer" />
+            <button
+              className="primary"
+              onClick={generateDraft}
+              disabled={drafting || !draftText.trim()}
+            >
+              {drafting ? '…' : 'Entwurf erzeugen'}
+            </button>
+          </div>
+          {draftError && <div className="section-error">{draftError}</div>}
+        </div>
+
         {visible.length === 0 ? (
           <div className="center-muted">
             Noch keine Dokumente. Lege ein Angebot oder eine Rechnung an — oder starte aus einem Lead

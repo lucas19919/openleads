@@ -159,6 +159,133 @@ CREATE TABLE IF NOT EXISTS document_items (
 CREATE INDEX IF NOT EXISTS idx_items_doc ON document_items(document_id);
 `)
 
+// --- AI + compliance tables (added in the AI-core release) -----------------
+// Kept in their own exec block so the schema stays readable. All idempotent.
+db.exec(`
+-- Append-only accountability trail (DSGVO Art. 5(2) / Art. 30). Every write that
+-- touches personal data — and every AI action — leaves a row here.
+CREATE TABLE IF NOT EXISTS audit_log (
+  id         INTEGER PRIMARY KEY,
+  at         TEXT NOT NULL DEFAULT (datetime('now')),
+  actor      TEXT,                    -- username, 'scraper', or 'ai'
+  action     TEXT NOT NULL,           -- e.g. lead.update, ai.outreach, dsgvo.erase
+  entity     TEXT,                    -- 'lead' | 'document' | 'settings' | ...
+  entity_id  INTEGER,
+  detail     TEXT,                    -- JSON: what changed / which model / why
+  ip         TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_log(entity, entity_id);
+CREATE INDEX IF NOT EXISTS idx_audit_at ON audit_log(at DESC);
+
+-- Cached AI assessment of a lead (one current row per lead; re-analysis replaces).
+CREATE TABLE IF NOT EXISTS lead_ai (
+  lead_id        INTEGER PRIMARY KEY REFERENCES leads(id) ON DELETE CASCADE,
+  summary        TEXT,                -- one-paragraph read on the prospect
+  qualification  TEXT,               -- 'hot' | 'warm' | 'cold' | 'disqualified'
+  fit_score      INTEGER,            -- 0..100, model's own confidence in the fit
+  next_action    TEXT,               -- the single recommended next step
+  talking_points TEXT,               -- JSON string[] for the call/mail
+  risk_flags     TEXT,               -- JSON string[]: compliance / quality caveats
+  model          TEXT,
+  created_at     TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- AI-drafted outreach. Never auto-sent: a human approves first (UWG §7 + trust).
+CREATE TABLE IF NOT EXISTS outreach (
+  id          INTEGER PRIMARY KEY,
+  lead_id     INTEGER NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
+  channel     TEXT NOT NULL DEFAULT 'email',  -- email | letter | call_script
+  subject     TEXT,
+  body        TEXT NOT NULL,
+  language    TEXT NOT NULL DEFAULT 'de',
+  legal_basis TEXT,                  -- noted lawful basis / UWG rationale
+  status      TEXT NOT NULL DEFAULT 'entwurf', -- entwurf | freigegeben | gesendet | verworfen
+  model       TEXT,
+  created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_outreach_lead ON outreach(lead_id);
+
+-- Lawful-basis / consent ledger per lead (DSGVO Art. 6, Art. 7, Art. 21).
+CREATE TABLE IF NOT EXISTS consent (
+  id       INTEGER PRIMARY KEY,
+  lead_id  INTEGER NOT NULL REFERENCES leads(id) ON DELETE CASCADE,
+  type     TEXT NOT NULL,            -- e.g. email_marketing, phone_b2b, data_processing
+  basis    TEXT NOT NULL,            -- legitimate_interest | consent | contract
+  status   TEXT NOT NULL DEFAULT 'active', -- active | withdrawn
+  source   TEXT,                     -- how it was obtained (form, call, import)
+  note     TEXT,
+  at       TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_consent_lead ON consent(lead_id);
+
+-- Copilot conversation threads + messages (the AI cockpit's memory).
+CREATE TABLE IF NOT EXISTS ai_threads (
+  id         INTEGER PRIMARY KEY,
+  title      TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS ai_messages (
+  id         INTEGER PRIMARY KEY,
+  thread_id  INTEGER NOT NULL REFERENCES ai_threads(id) ON DELETE CASCADE,
+  role       TEXT NOT NULL,          -- user | assistant | tool
+  content    TEXT,
+  tool_calls TEXT,                   -- JSON of any tool calls/results, for replay
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_ai_messages_thread ON ai_messages(thread_id);
+
+-- Mahnungen (dunning notices) raised against an overdue invoice.
+CREATE TABLE IF NOT EXISTS mahnungen (
+  id               INTEGER PRIMARY KEY,
+  document_id      INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+  level            INTEGER NOT NULL,        -- 0 = Zahlungserinnerung, 1..n = Mahnstufe
+  days_overdue     INTEGER NOT NULL,
+  interest_cents   INTEGER NOT NULL DEFAULT 0,
+  pauschale_cents  INTEGER NOT NULL DEFAULT 0, -- §288(5) BGB B2B-Pauschale
+  total_claim_cents INTEGER NOT NULL DEFAULT 0, -- gross + interest + pauschale
+  note             TEXT,
+  created_at       TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_mahnungen_doc ON mahnungen(document_id);
+
+-- Lead embeddings for semantic search (vector stored as JSON; small datasets,
+-- so a linear cosine scan in JS is plenty — no vector-DB dependency).
+CREATE TABLE IF NOT EXISTS lead_embeddings (
+  lead_id    INTEGER PRIMARY KEY REFERENCES leads(id) ON DELETE CASCADE,
+  vector     TEXT NOT NULL,           -- JSON number[]
+  dim        INTEGER NOT NULL,
+  model      TEXT,
+  source     TEXT,                    -- the text that was embedded (for re-use)
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+`)
+
+// Basiszinssatz (%) used for §288 BGB Verzugszinsen (configurable; changes
+// each Jan/Jul). B2B default rate = base + 9 pp. Added after the AI release.
+try {
+  db.exec('ALTER TABLE settings ADD COLUMN verzug_base_rate REAL NOT NULL DEFAULT 1.27')
+} catch {
+  // column already exists
+}
+
+// DATEV/GoBD export account numbers (Steuerberater handoff). SKR03 defaults.
+for (const col of ['datev_revenue_account TEXT', 'datev_debitor_account TEXT']) {
+  try {
+    db.exec(`ALTER TABLE settings ADD COLUMN ${col}`)
+  } catch {
+    // column already exists
+  }
+}
+
+// Käuferreferenz / Leitweg-ID (EN 16931 BT-10) — required for B2G / XRechnung.
+try {
+  db.exec('ALTER TABLE documents ADD COLUMN buyer_reference TEXT')
+} catch {
+  // column already exists
+}
+
 // --- migrations for existing databases (idempotent) ---
 // recontact_at: optional follow-up / callback date (YYYY-MM-DD).
 try {
@@ -251,6 +378,21 @@ export interface SettingsRow {
   scraper_min_score: number | null
   scraper_max_pairs: number | null
   scraper_per_pair: number | null
+  verzug_base_rate: number
+  datev_revenue_account: string | null
+  datev_debitor_account: string | null
+}
+
+export interface MahnungRow {
+  id: number
+  document_id: number
+  level: number
+  days_overdue: number
+  interest_cents: number
+  pauschale_cents: number
+  total_claim_cents: number
+  note: string | null
+  created_at: string
 }
 
 export interface DocumentRow {
@@ -271,6 +413,7 @@ export interface DocumentRow {
   due_date: string | null
   small_business: number
   vat_rate: number
+  buyer_reference: string | null
   created_at: string
   updated_at: string
 }
@@ -283,6 +426,70 @@ export interface DocumentItemRow {
   unit: string | null
   unit_price_cents: number
   sort: number
+}
+
+export interface AuditRow {
+  id: number
+  at: string
+  actor: string | null
+  action: string
+  entity: string | null
+  entity_id: number | null
+  detail: string | null
+  ip: string | null
+}
+
+export interface LeadAiRow {
+  lead_id: number
+  summary: string | null
+  qualification: string | null
+  fit_score: number | null
+  next_action: string | null
+  talking_points: string | null
+  risk_flags: string | null
+  model: string | null
+  created_at: string
+}
+
+export interface OutreachRow {
+  id: number
+  lead_id: number
+  channel: string
+  subject: string | null
+  body: string
+  language: string
+  legal_basis: string | null
+  status: string
+  model: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ConsentRow {
+  id: number
+  lead_id: number
+  type: string
+  basis: string
+  status: string
+  source: string | null
+  note: string | null
+  at: string
+}
+
+export interface AiThreadRow {
+  id: number
+  title: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface AiMessageRow {
+  id: number
+  thread_id: number
+  role: string
+  content: string | null
+  tool_calls: string | null
+  created_at: string
 }
 
 /** Normalise a URL or hostname to a bare registrable-ish domain for dedupe. */

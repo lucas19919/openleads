@@ -1,14 +1,25 @@
 import type {
+  AiStatus,
+  AiThread,
+  ChatResponse,
   Config,
+  Digest,
   Doc,
   DocItem,
+  DunningComputation,
+  InvoiceDraft,
+  Mahnung,
   Lead,
+  LeadAnalysis,
   LeadEvent,
   NewLead,
+  Outreach,
   ScraperConfig,
+  SemanticHit,
   ScraperStatus,
   Settings,
   User,
+  ValidationResult,
 } from './types'
 
 class ApiError extends Error {
@@ -126,10 +137,97 @@ export const api = {
   deleteDocument: (id: number) =>
     req<{ ok: true }>(`/documents/${id}`, { method: 'DELETE' }),
   pdfUrl: (id: number) => `/api/documents/${id}/pdf`,
+  validateDocument: (id: number) =>
+    req<{ validation: ValidationResult }>(`/documents/${id}/validate`),
+
+  // --- Mahnwesen (dunning) ---
+  overdueInvoices: () => req<{ overdue: DunningComputation[] }>('/invoices/overdue'),
+  previewDunning: (id: number, level?: number) =>
+    req<{ preview: DunningComputation; history: Mahnung[] }>(
+      `/documents/${id}/dunning${level != null ? `?level=${level}` : ''}`,
+    ),
+  raiseDunning: (id: number, body: { level?: number; note?: string } = {}) =>
+    req<{ mahnung: Mahnung; computation: DunningComputation; label: string }>(
+      `/documents/${id}/dunning`,
+      { method: 'POST', body: JSON.stringify(body) },
+    ),
+
+  // --- exports (Steuerberater) ---
+  exportInvoicesUrl: (from?: string, to?: string) => {
+    const qs = new URLSearchParams()
+    if (from) qs.set('from', from)
+    if (to) qs.set('to', to)
+    return `/api/export/invoices.csv${qs.toString() ? `?${qs}` : ''}`
+  },
+  exportDatevUrl: (from?: string, to?: string) => {
+    const qs = new URLSearchParams()
+    if (from) qs.set('from', from)
+    if (to) qs.set('to', to)
+    return `/api/export/datev.csv${qs.toString() ? `?${qs}` : ''}`
+  },
+
+  // --- admin ---
+  backupUrl: () => '/api/admin/backup',
 
   // --- scraper ---
   scraperConfig: () => req<ScraperConfig>('/scraper/config'),
   scraperStatus: () => req<ScraperStatus>('/scraper/status'),
+
+  // --- AI core ---
+  aiStatus: () => req<AiStatus>('/ai/status'),
+  aiDigest: () => req<{ digest: Digest }>('/ai/digest'),
+  semanticSearch: (q: string) =>
+    req<{ mode: 'semantic' | 'fallback'; hits: SemanticHit[] }>(
+      `/ai/leads/search?q=${encodeURIComponent(q)}`,
+    ),
+  reindexLeads: () => req<{ indexed: number; model: string }>('/ai/leads/reindex', { method: 'POST' }),
+  aiChat: (message: string, thread_id?: number) =>
+    req<ChatResponse>('/ai/chat', {
+      method: 'POST',
+      body: JSON.stringify({ message, thread_id }),
+    }),
+  aiThreads: () => req<{ threads: AiThread[] }>('/ai/threads'),
+  analyzeLead: (id: number) =>
+    req<{ analysis: LeadAnalysis }>(`/ai/leads/${id}/analyze`, { method: 'POST' }),
+  planFollowup: (id: number, apply = false) =>
+    req<{ suggestion: { recontact_at: string | null; days: number | null; reason: string; applied: boolean } }>(
+      `/ai/leads/${id}/followup`,
+      { method: 'POST', body: JSON.stringify({ apply }) },
+    ),
+  draftOutreach: (id: number, channel: 'email' | 'letter' | 'call_script' = 'email') =>
+    req<{ outreach: Outreach }>(`/ai/leads/${id}/outreach`, {
+      method: 'POST',
+      body: JSON.stringify({ channel }),
+    }),
+  listOutreach: (id: number) =>
+    req<{ outreach: Outreach[] }>(`/ai/leads/${id}/outreach`),
+  updateOutreach: (id: number, patch: Partial<Pick<Outreach, 'status' | 'subject' | 'body'>>) =>
+    req<{ outreach: Outreach }>(`/ai/outreach/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    }),
+  sendOutreach: (id: number) =>
+    req<{ ok: true; messageId: string; to: string }>(`/ai/outreach/${id}/send`, { method: 'POST' }),
+  draftInvoice: (text: string, opts: { create?: boolean; lead_id?: number } = {}) =>
+    req<{ draft: InvoiceDraft; document?: Doc }>('/ai/invoice/draft', {
+      method: 'POST',
+      body: JSON.stringify({ text, ...opts }),
+    }),
+
+  // --- DSGVO ---
+  dsgvoExportUrl: (leadId: number) => `/api/dsgvo/lead/${leadId}/export`,
+  dsgvoErase: (leadId: number, reason?: string) =>
+    req<{ ok: true; erased: number; retained_documents: number }>(
+      `/dsgvo/lead/${leadId}/erase`,
+      { method: 'POST', body: JSON.stringify({ reason }) },
+    ),
+  dsgvoAudit: (entity?: string, entityId?: number) => {
+    const qs = new URLSearchParams()
+    if (entity) qs.set('entity', entity)
+    if (entityId) qs.set('entity_id', String(entityId))
+    const s = qs.toString() ? `?${qs}` : ''
+    return req<{ audit: Record<string, unknown>[] }>(`/dsgvo/audit${s}`)
+  },
 }
 
 export { ApiError }
