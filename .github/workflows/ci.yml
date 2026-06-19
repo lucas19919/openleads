@@ -22,6 +22,12 @@ jobs:
       - name: Typecheck
         run: npx tsc --noEmit || npx tsc -b
         working-directory: ${{ matrix.pkg }}
+      - name: Test (api only)
+        if: matrix.pkg == 'api'
+        run: npm test
+        working-directory: api
+        env:
+          DB_PATH: ./data/test.db
       - name: Build (web only)
         if: matrix.pkg == 'web'
         run: npm run build
