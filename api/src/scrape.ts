@@ -1,6 +1,8 @@
 import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { getSettings } from './documents'
+import { decryptSecret } from './secrets'
 
 // Triggering a lead-discovery run from the UI. The scraper is a standalone
 // service (its own env + Anthropic key; posts leads back via the service token),
@@ -51,6 +53,30 @@ export function scraperReachable(): boolean {
   return scraperEntry() !== null
 }
 
+/** Whether the API has a service token the spawned scraper can authenticate with. */
+export function serviceTokenConfigured(): boolean {
+  return !!process.env.SERVICE_TOKEN
+}
+
+/**
+ * The environment the scraper child runs with. We wire the CRM connection from
+ * the API's own config (the scraper and API are the same trust domain when run
+ * this way), and let the operator-set discovery model + key override the
+ * scraper's .env — so a GUI run needs no scraper/.env at all.
+ */
+function childEnv(): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env }
+  // CRM connection: the scraper posts back to THIS API with its own token.
+  if (process.env.SERVICE_TOKEN) env.CRM_SERVICE_TOKEN = process.env.SERVICE_TOKEN
+  env.CRM_API_URL = `http://127.0.0.1:${process.env.PORT ?? 8787}`
+  // Discovery model + key from settings (override the scraper's own .env).
+  const s = getSettings()
+  if (s.scraper_model?.trim()) env.SCRAPER_MODEL = s.scraper_model.trim()
+  const key = decryptSecret(s.scraper_ai_api_key_enc)
+  if (key) env.ANTHROPIC_API_KEY = key
+  return env
+}
+
 /**
  * Start a scraper run in the background. Returns immediately; watch
  * scrapeRunState() for progress. Never throws. `dry` runs offline fixtures.
@@ -59,6 +85,9 @@ export function startScrape(opts: { dry?: boolean } = {}): { started: boolean; d
   if (state.running) return { started: false, detail: 'Scraper läuft bereits.' }
   const entry = scraperEntry()
   if (!entry) return { started: false, detail: 'Scraper-Quellen nicht erreichbar (separater Dienst).' }
+  if (!serviceTokenConfigured()) {
+    return { started: false, detail: 'SERVICE_TOKEN ist in der API nicht gesetzt — in api/.env eintragen.' }
+  }
   state.running = true
   state.dry = !!opts.dry
   state.started_at = new Date().toISOString()
@@ -83,7 +112,7 @@ function runChild(entry: string, dry: boolean, timeoutMs = 6 * 60_000): Promise<
     if (dry) args.push('--dry-run')
     let out = ''
     let err = ''
-    const child = spawn(process.execPath, args, { cwd: scraperDir, env: process.env })
+    const child = spawn(process.execPath, args, { cwd: scraperDir, env: childEnv() })
     const timer = setTimeout(() => child.kill(), timeoutMs)
     child.stdout.on('data', (d) => (out += d.toString()))
     child.stderr.on('data', (d) => (err += d.toString()))

@@ -17,6 +17,9 @@ export function ScraperView() {
   const [saved, setSaved] = useState(false)
   const [starting, setStarting] = useState(false)
   const [runError, setRunError] = useState<string | null>(null)
+  // Write-only discovery API key: held locally, sent only when typed.
+  const [aiKey, setAiKey] = useState('')
+  const [clearKey, setClearKey] = useState(false)
 
   async function reloadStatus() {
     setStatus(await api.scraperStatus())
@@ -61,14 +64,21 @@ export function ScraperView() {
     if (!s) return
     setSaving(true)
     try {
-      await api.updateSettings({
+      const patch: Record<string, unknown> = {
         scraper_region: s.scraper_region?.trim() ? s.scraper_region : null,
         scraper_trades: s.scraper_trades?.trim() ? s.scraper_trades : null,
         scraper_towns: s.scraper_towns?.trim() ? s.scraper_towns : null,
         scraper_min_score: s.scraper_min_score,
         scraper_max_pairs: s.scraper_max_pairs,
         scraper_per_pair: s.scraper_per_pair,
-      })
+        scraper_model: s.scraper_model?.trim() ? s.scraper_model : null,
+      }
+      if (clearKey) patch.scraper_ai_api_key = ''
+      else if (aiKey) patch.scraper_ai_api_key = aiKey
+      const { settings } = await api.updateSettings(patch as Partial<Settings>)
+      setS(settings)
+      setAiKey('')
+      setClearKey(false)
       const c = await api.scraperConfig()
       setConfig(c)
       setSaved(true)
@@ -120,10 +130,18 @@ export function ScraperView() {
             ) : (
               <>
                 <p className="settings-hint" style={{ marginBottom: 12 }}>
-                  Sucht über Sonnet + Websuche nach Betrieben mit veralteter Website und legt neue
-                  Leads an (Domains im System werden übersprungen). Der Lauf kostet API-Guthaben —
-                  der <strong>Testlauf</strong> nutzt Fixtures und kostet nichts.
+                  Sucht per KI-Websuche nach Betrieben mit veralteter Website und legt neue Leads an
+                  (Domains im System werden übersprungen). Der Lauf kostet API-Guthaben — der{' '}
+                  <strong>Testlauf</strong> nutzt Fixtures und kostet nichts.
                 </p>
+                {!status.service_token_configured && (
+                  <div className="section-error" style={{ marginBottom: 10 }}>
+                    <code>SERVICE_TOKEN</code> ist in der API nicht gesetzt — bitte in{' '}
+                    <code>api/.env</code> eintragen, sonst kann der Lauf keine Leads anlegen. (Der
+                    Scraper übernimmt diesen Token automatisch; eine eigene <code>scraper/.env</code>{' '}
+                    ist dafür nicht nötig.)
+                  </div>
+                )}
                 <div className="dunning-actions" style={{ marginBottom: 10 }}>
                   <button className="primary" onClick={() => run(false)} disabled={running || starting}>
                     {running && !run_.dry ? 'Läuft…' : 'Jetzt scrapen'}
@@ -238,6 +256,66 @@ export function ScraperView() {
               />
             </div>
             <div className="muted" style={{ fontSize: 13 }}>Aktuell: {perRun}.</div>
+          </fieldset>
+
+          <fieldset className="doc-block">
+            <legend>KI-Discovery</legend>
+            <p className="settings-hint">
+              Modell und API-Schlüssel für die Discovery — überschreiben <code>scraper/.env</code>,
+              sodass ein Lauf aus der Oberfläche ohne separate Scraper-Konfiguration funktioniert.
+              Die Discovery nutzt die Websuche von Anthropic; jedes Claude-Modell ist wählbar
+              (z. B. Opus, Sonnet, Haiku).
+            </p>
+            <div className="row2">
+              <div className="field">
+                <label>Modell</label>
+                <input
+                  value={s.scraper_model ?? ''}
+                  placeholder="claude-sonnet-4-6 (Standard)"
+                  onChange={(e) => set('scraper_model', e.target.value)}
+                />
+              </div>
+              <div className="field">
+                <label>
+                  API-Schlüssel{' '}
+                  {s.scraper_ai_api_key_set && <span className="user-chip">gespeichert</span>}
+                </label>
+                <input
+                  type="password"
+                  autoComplete="new-password"
+                  value={aiKey}
+                  disabled={clearKey}
+                  placeholder={
+                    s.scraper_ai_api_key_set
+                      ? '******** (leer lassen zum Beibehalten)'
+                      : 'sk-ant-… (sonst aus scraper/.env)'
+                  }
+                  onChange={(e) => {
+                    setAiKey(e.target.value)
+                    setSaved(false)
+                  }}
+                />
+                {s.scraper_ai_api_key_set && (
+                  <label className="check-row">
+                    <input
+                      type="checkbox"
+                      checked={clearKey}
+                      onChange={(e) => {
+                        setClearKey(e.target.checked)
+                        setSaved(false)
+                      }}
+                    />
+                    Gespeicherten Schlüssel löschen
+                  </label>
+                )}
+              </div>
+            </div>
+            {s.settings_key_configured === false && (
+              <p className="settings-hint" style={{ color: 'var(--danger)' }}>
+                <code>SETTINGS_KEY</code> ist nicht gesetzt — der Schlüssel wird mit einem unsicheren
+                Standardschlüssel verschlüsselt (im Produktivbetrieb wird das Speichern abgelehnt).
+              </p>
+            )}
           </fieldset>
 
           <fieldset className="doc-block">

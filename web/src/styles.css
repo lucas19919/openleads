@@ -92,6 +92,10 @@ input:focus, select:focus, textarea:focus {
   display: flex;
   align-items: center;
   gap: 12px;
+  /* Fixed min-height so the page header is the same height on every module.
+     Without it, button-less toolbars (Übersicht) collapse ~15px shorter than
+     pages with buttons, so the bar visibly jumps when switching tabs. */
+  min-height: 56px;
   padding: 10px 16px;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
@@ -623,6 +627,35 @@ button:disabled { opacity: 0.55; cursor: default; }
 }
 .backup-link:hover { background: var(--accent-soft); border-color: var(--accent); }
 .export-links { display: flex; flex-wrap: wrap; gap: 10px; }
+
+/* --- Integrations / API keys / webhooks ---------------------------------- */
+.int-card {
+  border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 12px 14px; margin-bottom: 12px; background: var(--surface);
+}
+.int-card-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+.int-card-head strong { font-size: 14px; }
+.int-card-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.muted-mono { font-size: 12px; color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.danger-text { color: var(--danger); }
+.break-all { word-break: break-all; }
+.scope-grid { display: flex; flex-wrap: wrap; gap: 8px 18px; }
+.status-pill {
+  font-size: 11px; padding: 2px 8px; border-radius: 999px; white-space: nowrap;
+  background: #eef0f2; color: var(--muted); border: 1px solid transparent;
+}
+.status-pill.ok { background: #e6f4ea; color: #1e7e34; }
+.status-pill.error { background: #fdecea; color: var(--danger); }
+.status-pill.unconfigured { background: #eef0f2; color: var(--muted); }
+.secret-reveal {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
+  background: #e6f4ea; border: 1px solid #2e8b57; border-radius: var(--radius);
+  padding: 8px 12px; margin: 6px 0 12px; font-size: 13px;
+}
+.secret-reveal code {
+  flex: 1 1 240px; word-break: break-all; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  background: var(--surface); padding: 4px 6px; border-radius: 4px;
+}
 
 /* --- Mahnungen / Mahnwesen ------------------------------------------------ */
 .dunning-legend {

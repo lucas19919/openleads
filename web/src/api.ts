@@ -5,9 +5,12 @@ import type {
   Config,
   Dashboard,
   Digest,
+  ApiKey,
   Doc,
   DocItem,
   DunningComputation,
+  IntegrationConnection,
+  IntegrationProvider,
   InvoiceDraft,
   Mahnung,
   Lead,
@@ -26,6 +29,8 @@ import type {
   ThreadMessage,
   User,
   ValidationResult,
+  WebhookEndpoint,
+  WebhookDelivery,
 } from './types'
 
 class ApiError extends Error {
@@ -263,6 +268,64 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ text, ...opts }),
     }),
+
+  // --- integrations (adapters / connections) ---
+  integrationProviders: () =>
+    req<{ providers: IntegrationProvider[] }>('/integrations/providers'),
+  integrationConnections: () =>
+    req<{ connections: IntegrationConnection[] }>('/integrations/connections'),
+  saveIntegration: (body: {
+    category: string
+    provider: string
+    label?: string | null
+    fields: Record<string, unknown>
+  }) =>
+    req<{ connection: IntegrationConnection }>('/integrations/connections', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  activateIntegration: (id: number) =>
+    req<{ connection: IntegrationConnection }>(`/integrations/connections/${id}/activate`, {
+      method: 'POST',
+    }),
+  probeIntegration: (id: number) =>
+    req<{ probe: { ok: boolean; detail?: string }; connection: IntegrationConnection }>(
+      `/integrations/connections/${id}/probe`,
+      { method: 'POST' },
+    ),
+  deleteIntegration: (id: number) =>
+    req<{ ok: true }>(`/integrations/connections/${id}`, { method: 'DELETE' }),
+
+  // --- public API keys (admin) ---
+  listApiKeys: () => req<{ keys: ApiKey[] }>('/admin/api-keys'),
+  createApiKey: (body: { name?: string; scopes: string[] }) =>
+    req<{ key: { id: number; name: string | null; prefix: string; scopes: string[] }; token: string }>(
+      '/admin/api-keys',
+      { method: 'POST', body: JSON.stringify(body) },
+    ),
+  revokeApiKey: (id: number) => req<{ ok: true }>(`/admin/api-keys/${id}`, { method: 'DELETE' }),
+
+  // --- outbound webhooks (admin) ---
+  listWebhooks: () => req<{ endpoints: WebhookEndpoint[] }>('/admin/webhooks'),
+  webhookEvents: () => req<{ events: string[] }>('/admin/webhooks/events'),
+  createWebhook: (body: { url: string; events?: string; description?: string }) =>
+    req<{ endpoint: WebhookEndpoint; secret: string }>('/admin/webhooks', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  updateWebhook: (
+    id: number,
+    patch: { url?: string; events?: string; active?: boolean; description?: string },
+  ) =>
+    req<{ endpoint: WebhookEndpoint }>(`/admin/webhooks/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    }),
+  deleteWebhook: (id: number) => req<{ ok: true }>(`/admin/webhooks/${id}`, { method: 'DELETE' }),
+  webhookDeliveries: (id: number) =>
+    req<{ deliveries: WebhookDelivery[] }>(`/admin/webhooks/${id}/deliveries`),
+  redeliverWebhook: (deliveryId: number) =>
+    req<{ ok: true }>(`/admin/webhooks/deliveries/${deliveryId}/redeliver`, { method: 'POST' }),
 
   // --- DSGVO ---
   dsgvoExportUrl: (leadId: number) => `/api/dsgvo/lead/${leadId}/export`,

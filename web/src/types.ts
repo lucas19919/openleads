@@ -83,8 +83,10 @@ export interface Settings {
   smtp_user?: string | null
   smtp_secure?: number | null
   smtp_from?: string | null
+  scraper_model?: string | null
   ai_api_key_set?: boolean
   smtp_pass_set?: boolean
+  scraper_ai_api_key_set?: boolean
   settings_key_configured?: boolean
 }
 
@@ -132,6 +134,7 @@ export interface ScraperStatus {
   }[]
   run: ScrapeRun
   reachable: boolean
+  service_token_configured: boolean
 }
 
 export interface DocItem {
@@ -397,6 +400,74 @@ export interface InvoiceDraft {
   client_name: string | null
   items: { description: string; quantity: number; unit: string; unit_price_cents: number }[]
   notes: string
+}
+
+// --- integrations / public API / webhooks -----------------------------------
+
+export interface IntegrationConfigField {
+  key: string
+  label: string
+  type: 'string' | 'number' | 'boolean' | 'select'
+  secret?: boolean
+  required?: boolean
+  options?: { value: string; label: string }[]
+  placeholder?: string
+}
+
+export interface IntegrationProvider {
+  category: string
+  provider: string
+  label: string
+  configSchema: IntegrationConfigField[]
+}
+
+export interface IntegrationConnection {
+  id: number
+  category: string
+  provider: string
+  label: string | null
+  active: boolean
+  status: string // unconfigured | ok | error
+  status_detail: string | null
+  config: Record<string, unknown>
+  credentials_set: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface ApiKey {
+  id: number
+  name: string | null
+  prefix: string
+  scopes: string // CSV
+  created_by: string | null
+  last_used_at: string | null
+  revoked_at: string | null
+  created_at: string
+}
+
+export interface WebhookEndpoint {
+  id: number
+  url: string
+  events: string // CSV or '*'
+  active: boolean
+  description: string | null
+  secret_set: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface WebhookDelivery {
+  id: number
+  endpoint_id: number
+  event: string
+  attempts: number
+  status: string // pending | delivered | failed
+  next_attempt_at: string
+  response_code: number | null
+  last_error: string | null
+  created_at: string
+  updated_at: string
 }
 
 export type NewLead = Partial<

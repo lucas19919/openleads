@@ -15,7 +15,6 @@ import {
   CLIENT_TYPES,
   ROLES,
   RECURRING_CADENCES,
-  normalizeDomain,
   type LeadRow,
   type UserRow,
   type DocumentRow,
@@ -50,13 +49,20 @@ import {
 } from './recurring'
 import { buildDashboard } from './dashboard'
 import { listUsers, createUser, updateUser, deleteUser } from './users'
-import { startScrape, scrapeRunState, scraperReachable } from './scrape'
+import { startScrape, scrapeRunState, scraperReachable, serviceTokenConfigured } from './scrape'
 import { snapshot, snapshotFilename } from './backup'
 import { finalisedInvoices, invoicesCsv, datevCsv, exportFilename } from './export'
 import { audit } from './audit'
 import { encryptSecret, settingsKeyConfigured } from './secrets'
 import { registerAiRoutes } from './ai/router'
 import { registerDsgvoRoutes } from './dsgvo'
+import './integrations' // side-effect: registers the shipped adapters
+import { emit } from './webhooks/bus'
+import { insertLead, applyLeadUpdate } from './leads'
+import { registerIntegrationRoutes } from './integrations/router'
+import { registerPublicApiRoutes } from './publicapi/router'
+import { registerWebhookRoutes } from './webhooks/router'
+import { startWebhookDispatcher } from './webhooks/dispatcher'
 
 type Vars = { user: Pick<UserRow, 'id' | 'username' | 'role'> }
 const app = new Hono<{ Variables: Vars }>()
@@ -181,56 +187,8 @@ app.get('/api/leads/:id', requireAuth, (c) => {
   return c.json({ lead, events })
 })
 
-// Insert one lead. Dedupes by registrable domain so already-known businesses
-// are never re-added. Shared by the create endpoint and the xlsx import.
-function insertLead(b: Record<string, unknown>, actor: string): { id: number; deduped?: boolean } {
-  const domain = normalizeDomain((b.domain as string) ?? (b.website as string))
-  if (domain) {
-    const existing = db.prepare('SELECT id FROM leads WHERE domain = ?').get(domain) as unknown as
-      | { id: number }
-      | undefined
-    if (existing) return { id: existing.id, deduped: true }
-  }
-  const info = db
-    .prepare(
-      `INSERT INTO leads
-        (domain, company, trade, city, website, phone, email, mobile_friendly,
-         tech, staleness_signal, score, priority, why_lead, stage, source)
-       VALUES
-        (@domain, @company, @trade, @city, @website, @phone, @email, @mobile_friendly,
-         @tech, @staleness_signal, @score, @priority, @why_lead, @stage, @source)`,
-    )
-    .run({
-      domain,
-      company: (b.company as string) ?? null,
-      trade: (b.trade as string) ?? null,
-      city: (b.city as string) ?? null,
-      website: (b.website as string) ?? null,
-      phone: (b.phone as string) ?? null,
-      email: (b.email as string) ?? null,
-      mobile_friendly:
-        b.mobile_friendly === undefined || b.mobile_friendly === null
-          ? null
-          : b.mobile_friendly
-            ? 1
-            : 0,
-      tech: (b.tech as string) ?? null,
-      staleness_signal: (b.staleness_signal as string) ?? null,
-      score: Number(b.score ?? 0),
-      priority: PRIORITIES.includes(b.priority as never) ? (b.priority as string) : 'mittel',
-      why_lead: (b.why_lead as string) ?? null,
-      stage: 'neu',
-      source: (b.source as string) ?? 'manual',
-    })
-  const id = Number(info.lastInsertRowid)
-  db.prepare(
-    `INSERT INTO lead_events (lead_id, actor, type, to_stage, body)
-     VALUES (?, ?, 'created', 'neu', ?)`,
-  ).run(id, actor, `Quelle: ${(b.source as string) ?? 'manual'}`)
-  return { id }
-}
-
 // Create a lead. Used by the scraper (service token) and manual adds.
+// insertLead() lives in ./leads (shared with the public API; emits lead.created).
 app.post('/api/leads', requireServiceOrAuth, async (c) => {
   const b = (await c.req.json().catch(() => ({}))) as Record<string, unknown>
   const r = insertLead(b, c.get('user').username)
@@ -265,80 +223,18 @@ app.post('/api/leads/import', requireAuth, async (c) => {
   return c.json({ imported, deduped, total: parsed.leads.length, fields: parsed.mapped })
 })
 
-const EDITABLE = new Set([
-  'company', 'trade', 'city', 'website', 'phone', 'email',
-  'mobile_friendly', 'tech', 'staleness_signal', 'score', 'priority',
-  'why_lead', 'notes', 'assigned_to', 'tags',
-])
-
-// Tags arrive as a comma-separated string; trim, drop blanks, and de-dupe
-// (case-insensitive) so the stored value stays tidy. Empty → NULL.
-export function normalizeTags(input: unknown): string | null {
-  if (typeof input !== 'string') return null
-  const seen = new Set<string>()
-  const out: string[] = []
-  for (const raw of input.split(',')) {
-    const t = raw.trim()
-    if (!t || seen.has(t.toLowerCase())) continue
-    seen.add(t.toLowerCase())
-    out.push(t)
-  }
-  return out.length ? out.join(',') : null
-}
-
+// Edit a lead. The field/stage/notes logic lives in applyLeadUpdate() (./leads),
+// shared with the public API and the source of the lead.stage_changed webhook.
 app.patch('/api/leads/:id', requireAuth, async (c) => {
   const id = Number(c.req.param('id'))
-  const lead = db.prepare('SELECT * FROM leads WHERE id = ?').get(id) as unknown as
-    | LeadRow
-    | undefined
-  if (!lead) return c.json({ error: 'not found' }, 404)
   const b = (await c.req.json().catch(() => ({}))) as Record<string, unknown>
-  const actor = c.get('user').username
-
-  const sets: string[] = []
-  const params: Record<string, string | number | null> = { id }
-
-  // Stage moves are tracked as their own event for the pipeline history.
-  if (typeof b.stage === 'string' && b.stage !== lead.stage) {
-    if (!STAGES.includes(b.stage as never)) return c.json({ error: 'invalid stage' }, 400)
-    sets.push('stage = @stage')
-    params.stage = b.stage
-    db.prepare(
-      `INSERT INTO lead_events (lead_id, actor, type, from_stage, to_stage)
-       VALUES (?, ?, 'stage_change', ?, ?)`,
-    ).run(id, actor, lead.stage, b.stage)
+  try {
+    const lead = applyLeadUpdate(id, b, c.get('user').username)
+    if (!lead) return c.json({ error: 'not found' }, 404)
+    return c.json({ lead })
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 400)
   }
-
-  for (const key of Object.keys(b)) {
-    if (!EDITABLE.has(key)) continue
-    const v = b[key]
-    sets.push(`${key} = @${key}`)
-    // node:sqlite only binds string | number | null — coerce booleans/undefined.
-    params[key] =
-      key === 'tags'
-        ? normalizeTags(v)
-        : v === undefined || v === null
-          ? null
-          : typeof v === 'boolean'
-            ? v
-              ? 1
-              : 0
-            : (v as string | number)
-  }
-
-  if (sets.length === 0) return c.json({ lead })
-
-  sets.push("updated_at = datetime('now')")
-  db.prepare(`UPDATE leads SET ${sets.join(', ')} WHERE id = @id`).run(params)
-
-  if (typeof b.notes === 'string' && b.notes !== (lead.notes ?? '')) {
-    db.prepare(
-      `INSERT INTO lead_events (lead_id, actor, type, body) VALUES (?, ?, 'note', ?)`,
-    ).run(id, actor, b.notes)
-  }
-
-  const updated = db.prepare('SELECT * FROM leads WHERE id = ?').get(id) as unknown as LeadRow
-  return c.json({ lead: updated })
 })
 
 // --- settings (business profile for documents) ----------------------------
@@ -353,6 +249,7 @@ const SETTINGS_FIELDS = new Set([
   // Operator-editable connection config (plain). Override the matching .env var.
   'ai_base_url', 'ai_model', 'ai_label',
   'smtp_host', 'smtp_port', 'smtp_user', 'smtp_secure', 'smtp_from',
+  'scraper_model',
 ])
 
 // Write-only secrets: the client sends the plaintext under the key on the left,
@@ -361,6 +258,7 @@ const SETTINGS_FIELDS = new Set([
 const SECRET_FIELDS: Record<string, string> = {
   ai_api_key: 'ai_api_key_enc',
   smtp_pass: 'smtp_pass_enc',
+  scraper_ai_api_key: 'scraper_ai_api_key_enc',
 }
 
 // The settings object the client may see: the encrypted columns are stripped and
@@ -370,9 +268,17 @@ function publicSettings() {
   const s = getSettings() as unknown as Record<string, unknown>
   const ai_api_key_set = !!s.ai_api_key_enc
   const smtp_pass_set = !!s.smtp_pass_enc
+  const scraper_ai_api_key_set = !!s.scraper_ai_api_key_enc
   delete s.ai_api_key_enc
   delete s.smtp_pass_enc
-  return { ...s, ai_api_key_set, smtp_pass_set, settings_key_configured: settingsKeyConfigured() }
+  delete s.scraper_ai_api_key_enc
+  return {
+    ...s,
+    ai_api_key_set,
+    smtp_pass_set,
+    scraper_ai_api_key_set,
+    settings_key_configured: settingsKeyConfigured(),
+  }
 }
 
 app.get('/api/settings', requireAuth, (c) => c.json({ settings: publicSettings() }))
@@ -492,6 +398,7 @@ app.post('/api/documents', requireAuth, async (c) => {
     })
   const id = Number(info.lastInsertRowid)
   if (Array.isArray(b.items)) replaceItems(id, b.items as DocItemInput[])
+  emit('document.created', { id, kind })
   return c.json({ document: getDocument(id) }, 201)
 })
 
@@ -542,6 +449,7 @@ app.post('/api/documents/:id/finalize', requireAuth, (c) => {
   // Audit the issuance (who finalised which number, when) — but not a re-finalise no-op.
   if (!wasFinal) {
     audit({ actor: c.get('user').username, action: 'document.finalize', entity: 'document', entityId: id, detail: { number: doc.number, kind: doc.kind } })
+    emit('document.finalized', { id, number: doc.number, kind: doc.kind })
   }
   return c.json({ document: doc })
 })
@@ -638,6 +546,7 @@ app.post('/api/documents/:id/payments', requireAuth, async (c) => {
     note: (b.note as string) ?? null,
   })
   audit({ actor: c.get('user').username, action: 'invoice.payment', entity: 'document', entityId: doc.id, detail: { amount_cents: amount, paid_total_cents: paidCents(doc.id) } })
+  emit('payment.recorded', { document_id: doc.id, amount_cents: amount, paid_total_cents: paidCents(doc.id), source: 'manual' })
   return c.json({ payment, document: getDocument(doc.id) }, 201)
 })
 
@@ -647,6 +556,7 @@ app.delete('/api/payments/:id', requireAuth, (c) => {
   const docId = deletePayment(pid)
   if (docId === null) return c.json({ error: 'not found' }, 404)
   audit({ actor: c.get('user').username, action: 'invoice.payment.delete', entity: 'document', entityId: docId, detail: { payment_id: pid } })
+  emit('payment.deleted', { document_id: docId, payment_id: pid })
   return c.json({ document: getDocument(docId) })
 })
 
@@ -766,7 +676,12 @@ app.get('/api/scraper/status', requireAuth, (c) => {
        FROM leads WHERE source = 'scraper' ORDER BY created_at DESC, id DESC LIMIT 8`,
     )
     .all() as unknown as Record<string, unknown>[]
-  return c.json({ total, scraped, last, today, byStage, recent, run: scrapeRunState(), reachable: scraperReachable() })
+  return c.json({
+    total, scraped, last, today, byStage, recent,
+    run: scrapeRunState(),
+    reachable: scraperReachable(),
+    service_token_configured: serviceTokenConfigured(),
+  })
 })
 
 // Trigger a discovery run from the UI. Fire-and-poll: returns immediately, then
@@ -913,6 +828,13 @@ app.post('/api/recurring/run-due', requireAuth, (c) => {
 registerAiRoutes(app, requireAuth)
 registerDsgvoRoutes(app, requireAuth)
 
+// Integrations + public API + outbound webhooks. Management routes are admin-only;
+// the public API (/api/v1/*) is Bearer-key-only (its own middleware), disjoint
+// from the session cookie; the inbound webhook receiver is signature-gated.
+registerIntegrationRoutes(app, requireAdmin)
+registerPublicApiRoutes(app, requireAdmin)
+registerWebhookRoutes(app, requireAdmin)
+
 // --- health ---------------------------------------------------------------
 
 app.get('/api/health', (c) => c.json({ ok: true }))
@@ -948,6 +870,13 @@ if (process.env.RECURRING_DISABLE !== '1') {
   }
   setTimeout(runDue, 15_000).unref() // shortly after boot
   setInterval(runDue, 6 * 60 * 60 * 1000).unref() // every 6h
+}
+
+// --- outbound webhook dispatcher ------------------------------------------
+// Drains the webhook_deliveries queue (HMAC-signed, SSRF-guarded, retried with
+// backoff). Same scheduler idiom as above. Set WEBHOOKS_DISABLE=1 to turn off.
+if (process.env.WEBHOOKS_DISABLE !== '1') {
+  startWebhookDispatcher()
 }
 
 // --- boot -----------------------------------------------------------------

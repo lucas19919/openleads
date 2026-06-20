@@ -4,13 +4,67 @@ A running log of what's landed, so picking the work back up is easy. Newest firs
 
 ## Latest
 
+- **Integrations foundation** — the substrate the integration roadmap rides on,
+  three coupled subsystems, all dependency-light + idiom-matched (docs:
+  `docs/INTEGRATIONS.md`):
+  - **Integrations module** (`api/src/integrations/`): a per-category adapter
+    interface (`PaymentProvider`, `AccountingProvider`, `MailProvider`,
+    `EnrichmentProvider`, `CalendarProvider`, `TelephonyProvider`), an encrypted
+    connection store (`integration_connections`, credentials AES-256-GCM via
+    `secrets.ts`), a registry (`register`/`available`/`resolve`/`saveConnection`/
+    `activate`), and **three real reference adapters**: Stripe (Checkout via
+    `fetch`, no SDK; base URL pinned to `api.stripe.com`), VIES (free EU USt-IdNr.
+    validation), and SMTP (wraps the existing mailer, keeping its UWG §7 / opt-out
+    gates). Admin routes under `/api/integrations/*` + an **unauthenticated,
+    signature-gated inbound webhook receiver** (`/api/integrations/webhooks/:provider`)
+    that records a Stripe payment against the invoice in `metadata.document_id`,
+    idempotent via `integration_events UNIQUE(provider, external_id)`.
+  - **Public API** (`api/src/publicapi/`): scoped `ol_<prefix>_<secret>` keys,
+    SHA-256-hashed at rest (the token is 192-bit random — no slow KDF, no
+    per-request DoS), shown once, revocable. A versioned `/api/v1/*` Bearer surface
+    (disjoint from the session cookie), scope-checked (`leads:read|write`,
+    `documents:read|write`), rate-limited per key, cursor-paginated, over
+    leads + documents. Admin key CRUD under `/api/admin/api-keys`.
+  - **Outbound webhooks** (`api/src/webhooks/`): a non-throwing `emit(event)` bus
+    that enqueues `webhook_deliveries`, hooked into lead create / stage change /
+    document create + finalize / payment record + delete. An in-process dispatcher
+    (same `setInterval(...).unref()` idiom as the recurring scheduler) signs each
+    delivery Stripe-style (`Webhook-Signature: t=..,v1=..`, HMAC-SHA256 over
+    `${t}.${body}`), POSTs with a timeout, retries with exponential backoff
+    (30s→6h, 6 attempts) then dead-letters, and **SSRF-guards** every target on
+    each attempt (HTTPS-only, private/loopback/link-local/metadata IPs rejected,
+    redirects not followed). Admin endpoint CRUD + deliveries + redeliver.
+  - `insertLead`/`applyLeadUpdate`/`normalizeTags` were extracted from `index.ts`
+    into a shared `leads.ts` so the public API reuses one implementation (and
+    webhook events fire from one place). Set `WEBHOOKS_DISABLE=1` to turn the
+    dispatcher off, `WEBHOOKS_ALLOW_HTTP=1` for dev.
+  - **Web UI** (`web/src/components/integrations/IntegrationsView.tsx`): a new
+    admin-only **Integrationen** tab (hidden for members) with three sections —
+    connect/activate/probe providers (forms rendered from each adapter's
+    `configSchema`), mint/revoke API keys (token shown once), and subscribe/manage
+    webhooks (signing secret shown once, deliveries + redeliver). Reuses the
+    existing Settings idioms (write-only secrets, `items-table` mobile cards).
+    Verified in-browser: key + webhook creation, the one-time reveals, and the
+    SSRF guard rejecting a private target all work end-to-end.
+  - New offline tests: `webhooks.test.ts`, `publicapi.test.ts`,
+    `integrations.test.ts` (signature round-trip, SSRF range coverage, emit
+    fan-out, backoff, key mint/verify/scope/revoke, Stripe webhook verify, VIES
+    mapper). **61 API tests green**; typecheck clean; boot + e2e verified.
 - Scraper page is back, now with a **GUI run button** (`api/src/scrape.ts` +
   `POST /api/scraper/run`, recovered after commit 760d379 had stripped it). It
   spawns the scraper as a one-shot child process, fire-and-poll: the panel watches
-  `/api/scraper/status` (now carries `run` state + `reachable`) for live progress
-  and the final result. A **Testlauf** (`--dry-run`, offline fixtures) runs the
-  whole pipeline with no Anthropic cost. Config (region/raster/limits) moved off
-  Settings back onto the dedicated Scraper page. New tab in the suite nav.
+  `/api/scraper/status` (now carries `run` state + `reachable` + `service_token_configured`)
+  for live progress and the final result. A **Testlauf** (`--dry-run`, offline
+  fixtures) runs the whole pipeline with no Anthropic cost. Config (region/raster/
+  limits) lives on the dedicated Scraper page. New tab in the suite nav.
+  - The API now **auto-wires the CRM connection** into the spawned scraper —
+    injects its own `SERVICE_TOKEN` as `CRM_SERVICE_TOKEN` (name mismatch was the
+    "CRM_SERVICE_TOKEN fehlt" error) plus `CRM_API_URL`. No `scraper/.env` needed
+    for the CRM side; the only bootstrap requirement is `SERVICE_TOKEN` in `api/.env`.
+  - **Discovery model + API key are now GUI-settable** (`scraper_model` plain,
+    `scraper_ai_api_key` encrypted like the other secrets) and injected into the
+    run, so a live run needs no `scraper/.env` at all. The model is selectable
+    (any Claude model — not pinned to Sonnet); the page text is model-neutral.
 - Kanban: columns now flex to share the board width (`flex: 1 1 0; min-width:150px`)
   so all eight stages — including `verloren` — fit on screen by default instead of
   requiring a horizontal scroll.

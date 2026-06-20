@@ -11,6 +11,7 @@ import { SettingsView } from './components/invoices/SettingsView'
 import { DashboardView } from './components/DashboardView'
 import { RecurringView } from './components/invoices/RecurringView'
 import { ScraperView } from './components/scraper/ScraperView'
+import { IntegrationsView } from './components/integrations/IntegrationsView'
 
 export default function App() {
   const [user, setUser] = useState<User | null | undefined>(undefined)
@@ -64,6 +65,7 @@ export default function App() {
       {module === 'scraper' && <ScraperView />}
       {module === 'recurring' && <RecurringView config={config!} />}
       {module === 'mahnungen' && <MahnungenView />}
+      {module === 'integrations' && <IntegrationsView />}
       {module === 'settings' && <SettingsView user={user} config={config!} />}
     </div>
   )

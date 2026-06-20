@@ -11,9 +11,11 @@ export type Module =
   | 'documents'
   | 'recurring'
   | 'mahnungen'
+  | 'integrations'
   | 'settings'
 
-const TABS: { id: Module; label: string }[] = [
+// `adminOnly` tabs are hidden for members (the backend also gates the routes).
+const TABS: { id: Module; label: string; adminOnly?: boolean }[] = [
   { id: 'dashboard', label: 'Übersicht' },
   { id: 'copilot', label: 'Chat' },
   { id: 'leads', label: 'Leads' },
@@ -21,6 +23,7 @@ const TABS: { id: Module; label: string }[] = [
   { id: 'documents', label: 'Rechnungen' },
   { id: 'recurring', label: 'Serien' },
   { id: 'mahnungen', label: 'Mahnungen' },
+  { id: 'integrations', label: 'Integrationen', adminOnly: true },
   { id: 'settings', label: 'Einstellungen' },
 ]
 
@@ -52,7 +55,7 @@ export function SuiteNav({
         Open<span>Leads</span>
       </div>
       <nav className="suite-tabs">
-        {TABS.map((t) => (
+        {TABS.filter((t) => !t.adminOnly || user.role === 'admin').map((t) => (
           <button
             key={t.id}
             className={module === t.id ? 'active' : ''}
