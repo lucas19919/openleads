@@ -223,6 +223,8 @@ export const api = {
   // --- scraper ---
   scraperConfig: () => req<ScraperConfig>('/scraper/config'),
   scraperStatus: () => req<ScraperStatus>('/scraper/status'),
+  runScraper: (dry = false) =>
+    req<{ started: true }>('/scraper/run', { method: 'POST', body: JSON.stringify({ dry }) }),
 
   // --- AI core ---
   aiStatus: () => req<AiStatus>('/ai/status'),

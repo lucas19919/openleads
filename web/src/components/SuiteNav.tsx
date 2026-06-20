@@ -7,6 +7,7 @@ export type Module =
   | 'dashboard'
   | 'copilot'
   | 'leads'
+  | 'scraper'
   | 'documents'
   | 'recurring'
   | 'mahnungen'
@@ -16,6 +17,7 @@ const TABS: { id: Module; label: string }[] = [
   { id: 'dashboard', label: 'Übersicht' },
   { id: 'copilot', label: 'Chat' },
   { id: 'leads', label: 'Leads' },
+  { id: 'scraper', label: 'Scraper' },
   { id: 'documents', label: 'Rechnungen' },
   { id: 'recurring', label: 'Serien' },
   { id: 'mahnungen', label: 'Mahnungen' },

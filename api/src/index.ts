@@ -50,6 +50,7 @@ import {
 } from './recurring'
 import { buildDashboard } from './dashboard'
 import { listUsers, createUser, updateUser, deleteUser } from './users'
+import { startScrape, scrapeRunState, scraperReachable } from './scrape'
 import { snapshot, snapshotFilename } from './backup'
 import { finalisedInvoices, invoicesCsv, datevCsv, exportFilename } from './export'
 import { audit } from './audit'
@@ -765,7 +766,18 @@ app.get('/api/scraper/status', requireAuth, (c) => {
        FROM leads WHERE source = 'scraper' ORDER BY created_at DESC, id DESC LIMIT 8`,
     )
     .all() as unknown as Record<string, unknown>[]
-  return c.json({ total, scraped, last, today, byStage, recent })
+  return c.json({ total, scraped, last, today, byStage, recent, run: scrapeRunState(), reachable: scraperReachable() })
+})
+
+// Trigger a discovery run from the UI. Fire-and-poll: returns immediately, then
+// the panel watches /api/scraper/status for progress and the final result. A
+// `dry` run uses offline fixtures (no Anthropic key, no cost) for testing.
+app.post('/api/scraper/run', requireAuth, async (c) => {
+  const b = (await c.req.json().catch(() => ({}))) as { dry?: boolean }
+  const r = startScrape({ dry: !!b.dry })
+  if (!r.started) return c.json({ error: r.detail ?? 'Konnte nicht starten.' }, 409)
+  audit({ actor: c.get('user').username, action: 'scraper.run', detail: { dry: !!b.dry } })
+  return c.json({ started: true })
 })
 
 // --- exports for the Steuerberater (GoBD invoice journal + DATEV bookings) --

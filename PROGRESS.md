@@ -4,6 +4,18 @@ A running log of what's landed, so picking the work back up is easy. Newest firs
 
 ## Latest
 
+- Scraper page is back, now with a **GUI run button** (`api/src/scrape.ts` +
+  `POST /api/scraper/run`, recovered after commit 760d379 had stripped it). It
+  spawns the scraper as a one-shot child process, fire-and-poll: the panel watches
+  `/api/scraper/status` (now carries `run` state + `reachable`) for live progress
+  and the final result. A **Testlauf** (`--dry-run`, offline fixtures) runs the
+  whole pipeline with no Anthropic cost. Config (region/raster/limits) moved off
+  Settings back onto the dedicated Scraper page. New tab in the suite nav.
+- Kanban: columns now flex to share the board width (`flex: 1 1 0; min-width:150px`)
+  so all eight stages — including `verloren` — fit on screen by default instead of
+  requiring a horizontal scroll.
+- Dashboard: KPI cards use `auto-fit` (was `auto-fill`) so they stretch to fill the
+  row on a wide monitor instead of leaving a ragged empty trailing column.
 - Mobile: the whole web app is now phone-friendly (verified at 320–375px, no
   horizontal overflow on any view). Data tables (Leads, Rechnungen, Mahnungen,
   Serien, Team) and the invoice line-item/payments editors collapse from

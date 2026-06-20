@@ -115,7 +115,11 @@ input:focus, select:focus, textarea:focus {
 /* ---- kanban ---- */
 .board { display: flex; gap: 12px; align-items: flex-start; min-height: 100%; }
 .column {
-  flex: 0 0 260px;
+  /* Share the board width so all stages fit on screen by default (no need to
+     scroll to reach the last column). Falls back to a min width on very narrow
+     desktops; phones override this to one-column-per-screen swipe below. */
+  flex: 1 1 0;
+  min-width: 150px;
   background: #eef1f4;
   border-radius: var(--radius);
   padding: 8px;
@@ -680,7 +684,9 @@ button:disabled { opacity: 0.55; cursor: default; }
 
 /* --- dashboard --- */
 .dash-cards {
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  /* auto-fit (not auto-fill) so the cards stretch to fill the row instead of
+     leaving an empty trailing column on a wide monitor. */
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
   gap: 12px; margin-bottom: 18px;
 }
 .dash-card {

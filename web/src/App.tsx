@@ -10,6 +10,7 @@ import { MahnungenView } from './components/invoices/MahnungenView'
 import { SettingsView } from './components/invoices/SettingsView'
 import { DashboardView } from './components/DashboardView'
 import { RecurringView } from './components/invoices/RecurringView'
+import { ScraperView } from './components/scraper/ScraperView'
 
 export default function App() {
   const [user, setUser] = useState<User | null | undefined>(undefined)
@@ -60,6 +61,7 @@ export default function App() {
           onPrefillHandled={() => setInvoiceLead(null)}
         />
       )}
+      {module === 'scraper' && <ScraperView />}
       {module === 'recurring' && <RecurringView config={config!} />}
       {module === 'mahnungen' && <MahnungenView />}
       {module === 'settings' && <SettingsView user={user} config={config!} />}

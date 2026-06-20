@@ -91,10 +91,28 @@ export interface Settings {
 export interface ScraperConfig {
   trades: string[]
   towns: string[]
+  region: string
   min_score: number
   max_pairs: number
   per_pair: number
-  using_defaults: { trades: boolean; towns: boolean }
+  using_defaults: { trades: boolean; towns: boolean; region: boolean }
+}
+
+export interface ScrapeResult {
+  ok: boolean
+  detail: string
+  posted?: number
+  deduped?: number
+  skipped?: number
+  dry: boolean
+}
+
+export interface ScrapeRun {
+  running: boolean
+  dry: boolean
+  started_at: string | null
+  finished_at: string | null
+  last: ScrapeResult | null
 }
 
 export interface ScraperStatus {
@@ -112,6 +130,8 @@ export interface ScraperStatus {
     priority: string
     created_at: string
   }[]
+  run: ScrapeRun
+  reachable: boolean
 }
 
 export interface DocItem {
