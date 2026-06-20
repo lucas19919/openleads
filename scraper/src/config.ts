@@ -117,7 +117,10 @@ export const DIRECTORY_BLOCKLIST = [
   '-portal.de',
 ]
 
-// Outdatedness scoring weights (from the proven lead-gen heuristics).
+// Outdatedness scoring weights (from the proven lead-gen heuristics). Each is a
+// high-precision staleness tell — we'd rather miss a so-so lead than flag a
+// modern site, so weights reward signals that a current build essentially never
+// emits (a 2010-era markup tag, a browser-war optimisation note, an EOL CMS).
 export const SCORE_WEIGHTS = {
   noViewport: 45, // the killer signal — unusable on mobile
   flash: 25,
@@ -127,6 +130,10 @@ export const SCORE_WEIGHTS = {
   oldJquery: 8,
   tableHeavy: 12,
   builder: 8, // Jimdo / 1&1 / IONOS / FrontPage = low digital affinity
+  deprecatedTags: 15, // <font>/<center>/<marquee>/<blink> — pre-CSS presentation
+  ieOptimized: 12, // "best viewed in IE", "1024x768" — browser-war relic
+  inlineStyling: 8, // bgcolor/alink/vlink body attributes — table-layout era
+  oldCms: 16, // WordPress 2–4.x / Joomla 1–2.x generator — years of missed updates
 }
 
 export function priorityFromScore(score: number): 'hoch' | 'mittel' | 'niedrig' {

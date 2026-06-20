@@ -49,9 +49,25 @@ Dienstleistungen. Antworte AUSSCHLIESSLICH mit einem JSON-Objekt dieser Form:
   "risk_flags": string[]        // z.B. fehlende Kontaktdaten, DSGVO/UWG-Hinweise
 }
 
-Regeln: Nutze nur die gelieferten Fakten, erfinde nichts. Wenn keine E-Mail/kein
-Telefon vorhanden ist, vermerke das als risk_flag. Sei ehrlich: schwache Leads
-sind "cold" oder "disqualified".
+Qualifikations-Rubrik (Anhaltspunkte, nicht stur, aber konsistent):
+- "hot": deutliches Veraltungssignal (z.B. nicht mobiltauglich ODER veraltungs_
+  score ≥ 70) UND eine erreichbare Kontaktadresse (E-Mail oder Telefon).
+- "warm": klares Signal, aber Kontakt unvollständig, ODER mittlerer Score (45–69).
+- "cold": nur schwache Signale / Score < 45 / Website wirkt gepflegt.
+- "disqualified": kein Gewerk-/Website-Bezug, Mitbewerber, oder offensichtlich
+  ungeeignet. fit_score spiegelt das wider (0..100), nicht bloß den Score kopieren.
+
+Regeln:
+- Nutze NUR die gelieferten Fakten, erfinde nichts (keine Mitarbeiterzahl, kein
+  Umsatz, keine Tools, die nicht in den Daten stehen).
+- Jeder talking_point muss sich an EINEM konkreten Datum festmachen (das
+  veraltungs_signal, die Technik, das Gewerk, der Ort) — keine Allgemeinplätze
+  wie "professioneller Auftritt" oder "mehr Sichtbarkeit".
+- next_action ist EINE konkrete, heute machbare Maßnahme (z.B. "Anruf unter der
+  Impressumsnummer, Aufhänger fehlende Mobilversion"), kein "Lead weiter
+  beobachten".
+- Fehlt E-Mail UND Telefon, ist das ein risk_flag und drückt die Qualifikation.
+- Sei ehrlich: schwache Leads sind "cold" oder "disqualified", nicht "warm".
 
 ${COMPLIANCE_GUARDRAILS}
 `.trim()
@@ -70,13 +86,24 @@ Antworte AUSSCHLIESSLICH mit JSON:
 }
 
 Vorgaben:
-- Deutsch, Sie-Form, max. ~140 Wörter Fließtext.
-- Greife genau EIN konkretes Signal aus den Lead-Daten auf (z.B. nicht mobil-
-  optimiert, alte Jahreszahl). Erfinde keine weiteren Mängel.
+- Deutsch, Sie-Form, max. ~140 Wörter Fließtext. Schreibe wie ein Mensch, der die
+  Seite wirklich angeschaut hat — kein Serienbrief, kein Template-Klang.
+- Greife genau EIN konkretes Signal aus den Lead-Daten auf und benenne es in
+  Klartext (z.B. "auf dem Handy bricht die Seite um", "im Footer steht noch 2012")
+  — nicht den internen Signalnamen zitieren, nicht weitere Mängel erfinden.
+- Personalisiere mit Firma, Gewerk und/oder Ort, sodass die Mail nur zu DIESEM
+  Betrieb passt. Wechsle den Einstieg (keine Standard-Floskel als erster Satz).
+- Verboten sind Marktschreier- und Floskel-Phrasen wie "Ich hoffe, diese E-Mail
+  erreicht Sie gut", "In der heutigen digitalen Welt", "Ihr starker Partner",
+  "auf das nächste Level", "kostenloses unverbindliches Angebot" sowie
+  Superlative/Versprechen ("garantiert mehr Kunden", "Platz 1 bei Google").
+- Eine einzige, niederschwellige Handlungsaufforderung (kurzes Gespräch/Rückruf),
+  kein Druck, keine Frist.
 - Schließe mit einem niederschwelligen Opt-out-Hinweis ("Falls kein Interesse
   besteht, genügt eine kurze Antwort, dann melde ich mich nicht erneut.").
 - Platzhalter für Absenderdaten als {{absender_name}}, {{absender_firma}},
-  {{absender_impressum}} — diese füllt das System aus den Einstellungen.
+  {{absender_impressum}} — diese füllt das System aus den Einstellungen. Erfinde
+  keine Absenderdaten und keine Telefonnummern.
 
 ${COMPLIANCE_GUARDRAILS}
 `.trim()

@@ -72,6 +72,33 @@ export function scoreSite(html: string, finalUrl: string): ScoreResult {
     signals.push('Tabellen-Layout')
   }
 
+  // Presentational tags CSS retired ~15 years ago. A current build never emits
+  // these, so even one is a strong tell.
+  if (/<font[\s>]|<center[\s>]|<marquee|<blink/.test(h)) {
+    score += SCORE_WEIGHTS.deprecatedTags
+    signals.push('veraltete HTML-Tags (font/center)')
+  }
+
+  // Browser-war relics: "best viewed in…", fixed-resolution notes, named old
+  // browsers. Nobody writes these on a site built this decade.
+  if (/best viewed|optimiert für (?:den )?(?:internet explorer|ie\b)|1024\s?[x×]\s?768|800\s?[x×]\s?600|netscape/.test(h)) {
+    score += SCORE_WEIGHTS.ieOptimized
+    signals.push('für alten Browser optimiert')
+  }
+
+  // Body-level presentational attributes — the table-layout era's inline styling.
+  if (/\sbgcolor=|\s[av]link=|\stext=["']?#/.test(h)) {
+    score += SCORE_WEIGHTS.inlineStyling
+    signals.push('Inline-Layout-Attribute')
+  }
+
+  // An end-of-life CMS version in the generator meta = years of skipped updates.
+  const oldCms = /wordpress\s*[2-4]\.|joomla!?\s*[12]\./.exec(h)?.[0]
+  if (oldCms) {
+    score += SCORE_WEIGHTS.oldCms
+    signals.push(`veraltetes CMS (${oldCms.trim()})`)
+  }
+
   const tech = detectTech(h)
   if (tech && ['Jimdo', '1&1', 'IONOS', 'FrontPage'].includes(tech)) {
     score += SCORE_WEIGHTS.builder
@@ -87,6 +114,11 @@ export function buildWhy(s: ScoreResult): string {
   if (!s.mobileFriendly) reasons.push('nicht mobiltauglich')
   if (s.copyrightYear && s.copyrightYear <= staleCopyrightCutoff())
     reasons.push(`Stand ~${s.copyrightYear}`)
+  // Lift the most telling staleness signals into the headline so the sales view
+  // explains the lead at a glance (e.g. "veraltetes CMS (wordpress 4.)").
+  for (const sig of s.signals) {
+    if (/veraltete HTML-Tags|alten Browser|veraltetes CMS/.test(sig)) reasons.push(sig)
+  }
   if (s.tech) reasons.push(`Technik: ${s.tech}`)
   return reasons.join(', ') || 'veraltete Website'
 }
