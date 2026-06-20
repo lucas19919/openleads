@@ -344,13 +344,41 @@ export function SettingsView({ user, config }: { user: User; config: Config }) {
                 </label>
               )}
             </div>
-            {s.settings_key_configured === false && (
-              <p className="settings-hint" style={{ color: 'var(--danger, #c0392b)' }}>
-                <code>SETTINGS_KEY</code> ist nicht gesetzt. Zugangsdaten werden dann mit einem
-                unsicheren Standardschlüssel verschlüsselt — im Produktivbetrieb wird das Speichern
-                abgelehnt. Bitte <code>SETTINGS_KEY</code> (langer Zufallswert) in der Umgebung setzen.
-              </p>
-            )}
+            <p
+              className="settings-hint"
+              style={s.settings_key_configured === false ? { color: 'var(--danger, #c0392b)' } : undefined}
+            >
+              <code>SETTINGS_KEY</code>
+              <span
+                className="info-tip tip-left"
+                tabIndex={0}
+                role="note"
+                aria-label="Was ist SETTINGS_KEY?"
+                data-tip={
+                  'Kein Passwort, das du hier eingibst, sondern ein langer Zufallswert ' +
+                  '(Hauptschlüssel) in der Server-Umgebung. Damit werden API-Schlüssel und ' +
+                  'SMTP-Passwort verschlüsselt in der Datenbank gespeichert — der Schlüssel ' +
+                  'selbst bleibt nur in der .env, nie in der DB. Einmalig erzeugen mit ' +
+                  '`node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"`, ' +
+                  'in api/.env als SETTINGS_KEY eintragen und den Server neu starten.'
+                }
+              >
+                i
+              </span>{' '}
+              {s.settings_key_configured === false ? (
+                <>
+                  ist nicht gesetzt. Zugangsdaten (API-Schlüssel, SMTP-Passwort) lassen sich im
+                  Produktivbetrieb deshalb <strong>nicht speichern</strong>. Dieser Schlüssel wird
+                  nicht hier, sondern in der <strong>Server-Umgebung</strong> (<code>api/.env</code>)
+                  gesetzt — danach den Server neu starten.
+                </>
+              ) : (
+                <>
+                  ist gesetzt — Zugangsdaten werden verschlüsselt gespeichert. Dieser Schlüssel wird
+                  in der Server-Umgebung (<code>api/.env</code>) verwaltet, nicht hier.
+                </>
+              )}
+            </p>
           </fieldset>
 
           <fieldset className="doc-block">

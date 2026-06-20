@@ -642,6 +642,30 @@ button:disabled { opacity: 0.55; cursor: default; }
 
 /* --- Settings: backup ----------------------------------------------------- */
 .settings-hint { margin: 0 0 10px; font-size: 13px; color: var(--muted); }
+
+/* Inline help marker: a small "i" that reveals an explanatory bubble on hover or
+   keyboard focus. Used to explain config that lives outside the UI (e.g. the
+   SETTINGS_KEY server env var), so the label stays short. */
+.info-tip {
+  position: relative; display: inline-flex; align-items: center; justify-content: center;
+  width: 16px; height: 16px; margin-left: 6px; border-radius: 50%;
+  border: 1px solid currentColor; font-size: 11px; font-weight: 700; font-style: normal;
+  line-height: 1; cursor: help; opacity: 0.65; vertical-align: middle; user-select: none;
+}
+.info-tip:hover, .info-tip:focus-visible { opacity: 1; }
+.info-tip::after {
+  content: attr(data-tip);
+  position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%);
+  width: max-content; max-width: 280px; padding: 8px 10px; border-radius: 8px;
+  background: var(--accent-dark); color: #fff; font-size: 12px; font-weight: 400;
+  font-style: normal; line-height: 1.45; text-align: left; white-space: normal;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.18); z-index: 40;
+  opacity: 0; visibility: hidden; transition: opacity 0.15s ease;
+}
+.info-tip:hover::after, .info-tip:focus-visible::after { opacity: 1; visibility: visible; }
+/* Keep the bubble on-screen near the right edge by anchoring it to the marker. */
+.info-tip.tip-left::after { left: auto; right: 0; transform: none; }
+
 .backup-link {
   display: inline-block; padding: 7px 14px; border: 1px solid var(--border);
   border-radius: var(--radius); background: var(--surface); color: var(--text);
