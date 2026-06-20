@@ -87,6 +87,14 @@ input:focus, select:focus, textarea:focus {
 .suite-tabs button.active { background: #fff; color: var(--accent-dark); font-weight: 600; }
 .suite-nav button.ghost { color: #fff; }
 .suite-nav button.ghost:hover { background: rgba(255,255,255,0.12); }
+/* Burger toggle — hidden on desktop, revealed at the mobile breakpoint. */
+.suite-nav .burger { display: none; }
+.burger-lines { display: inline-flex; flex-direction: column; justify-content: center; gap: 4px; width: 18px; }
+.burger-lines span { display: block; height: 2px; border-radius: 2px; background: currentColor; transition: transform 0.2s ease, opacity 0.2s ease; }
+/* Animate the three bars into an X while the menu is open. */
+.suite-nav.menu-open .burger-lines span:nth-child(1) { transform: translateY(6px) rotate(45deg); }
+.suite-nav.menu-open .burger-lines span:nth-child(2) { opacity: 0; }
+.suite-nav.menu-open .burger-lines span:nth-child(3) { transform: translateY(-6px) rotate(-45deg); }
 
 .toolbar {
   display: flex;
@@ -336,7 +344,8 @@ table.leads td.num, table.leads th.num { text-align: right; font-variant-numeric
   /* 16px form controls stop iOS Safari from auto-zooming on focus. */
   input, select, textarea { font-size: 16px; }
 
-  /* Suite nav → two rows: [brand … username  Abmelden] then full-width tabs. */
+  /* Suite nav → single row: [brand … burger  username  Abmelden]; the tabs
+     collapse behind the burger and drop down as a full-width panel. */
   .suite-nav {
     flex-wrap: wrap;
     gap: 8px 10px;
@@ -344,13 +353,30 @@ table.leads td.num, table.leads th.num { text-align: right; font-variant-numeric
   }
   .suite-nav .spacer { display: none; }
   .suite-nav .brand { order: 1; }
-  .suite-nav .ai-badge { order: 2; margin-right: 0; }
-  .suite-nav .user-chip { order: 3; margin-left: auto; }
-  .suite-nav button.ghost { order: 4; }
-  /* Tabs wrap to as many rows as needed so every German label stays readable
-     and tappable — no clipping, no squeezing 7 tabs into one row. */
-  .suite-tabs { order: 5; flex-basis: 100%; flex-wrap: wrap; gap: 6px; }
-  .suite-tabs button { flex: 0 0 auto; white-space: nowrap; padding: 9px 14px; }
+  .suite-nav .burger {
+    order: 2;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-right: auto;
+    color: #fff;
+  }
+  /* Active module name beside the bars, so the current view is clear when collapsed. */
+  .burger-label { font-size: 13px; font-weight: 600; color: #d7eaed; }
+  .suite-nav .ai-badge { order: 3; margin-right: 0; }
+  .suite-nav .user-chip { order: 4; }
+  .suite-nav button.ghost { order: 5; }
+  /* Tabs hidden by default; the burger toggles `.menu-open` to reveal them as a
+     stacked, full-width dropdown — every German label stays readable and tappable. */
+  .suite-tabs {
+    order: 6;
+    flex-basis: 100%;
+    flex-direction: column;
+    gap: 4px;
+    display: none;
+  }
+  .suite-nav.menu-open .suite-tabs { display: flex; }
+  .suite-tabs button { width: 100%; text-align: left; white-space: nowrap; padding: 11px 14px; }
 
   /* Per-module toolbars wrap; search/segments take the full width. */
   .toolbar {
