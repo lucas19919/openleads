@@ -45,7 +45,7 @@ function fixtureDoc(over: Partial<FullDocument> = {}): FullDocument {
     client_address: 'Dorfstr. 2', client_zip: '85435', client_city: 'Erding', client_email: 'k@x.de',
     title: 'Rechnung', intro: null, notes: null, status: 'versendet', issue_date: '2026-06-20', due_date: '2026-07-04',
     small_business: 0, vat_rate: 19, buyer_reference: null, client_type: 'geschaeft', client_vat_id: 'DE123456789',
-    created_at: '', updated_at: '', items, totals: { net_cents: 110000, vat_cents: 20900, gross_cents: 130900 }, paid_cents: 0,
+    include_payment_link: 1, created_at: '', updated_at: '', items, totals: { net_cents: 110000, vat_cents: 20900, gross_cents: 130900 }, paid_cents: 0,
     ...over,
   }
 }

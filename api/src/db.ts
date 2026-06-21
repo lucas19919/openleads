@@ -485,6 +485,22 @@ try {
   // column already exists
 }
 
+// Opt-in for attaching a hosted payment link (Stripe/GoCardless) when the
+// invoice is e-mailed. Lives on both the document (per-invoice override) and the
+// recurring template (carried onto each generated draft). Default 1 = offer the
+// link, matching the prior behaviour where every invoice e-mail carried one when
+// a payment provider was active.
+for (const stmt of [
+  'ALTER TABLE documents ADD COLUMN include_payment_link INTEGER NOT NULL DEFAULT 1',
+  'ALTER TABLE recurring_invoices ADD COLUMN include_payment_link INTEGER NOT NULL DEFAULT 1',
+]) {
+  try {
+    db.exec(stmt)
+  } catch {
+    // column already exists
+  }
+}
+
 // --- migrations for existing databases (idempotent) ---
 // tags: free-form, comma-separated labels per lead (e.g. "vip,umbau").
 try {
@@ -669,6 +685,7 @@ export interface DocumentRow {
   buyer_reference: string | null
   client_type: string
   client_vat_id: string | null
+  include_payment_link: number
   created_at: string
   updated_at: string
 }
@@ -701,6 +718,7 @@ export interface RecurringInvoiceRow {
   cadence: string
   next_run: string
   active: number
+  include_payment_link: number
   last_run: string | null
   created_at: string
   updated_at: string

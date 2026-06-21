@@ -175,6 +175,15 @@ export function DocumentEditor({
     }
   }
 
+  // Whether a Stripe/GoCardless pay link is attached when this invoice is e-mailed.
+  // Editable on finalised invoices (no Save button then) → persist immediately.
+  async function changeIncludePayLink(on: boolean) {
+    field('include_payment_link', on ? 1 : 0)
+    const { document } = await api.updateDocument(id, { include_payment_link: on ? 1 : 0 })
+    setDoc(document)
+    onChanged()
+  }
+
   async function recordPayment() {
     const amount = inputToCents(payAmount)
     if (amount <= 0) return
@@ -230,7 +239,7 @@ export function DocumentEditor({
     setBusy(true)
     setActionMsg(null)
     try {
-      const r = await api.sendDocument(id, doc!.kind === 'rechnung')
+      const r = await api.sendDocument(id, doc!.kind === 'rechnung' && !!doc!.include_payment_link)
       setActionMsg(`Per E-Mail gesendet an ${r.to}.`)
     } catch (e) {
       setActionMsg((e as Error).message)
@@ -326,6 +335,17 @@ export function DocumentEditor({
           </>
         )}
       </div>
+
+      {isFinalInvoice && (
+        <label className="check-row" style={{ marginTop: 8 }} title="Bei „Per E-Mail senden“ einen Online-Zahlungslink (Stripe/GoCardless) in die E-Mail aufnehmen.">
+          <input
+            type="checkbox"
+            checked={!!doc.include_payment_link}
+            onChange={(e) => changeIncludePayLink(e.target.checked)}
+          />
+          Zahlungslink in E-Mail aufnehmen
+        </label>
+      )}
 
       {locked && (
         <div className="doc-locked">

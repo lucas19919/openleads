@@ -409,7 +409,7 @@ app.post('/api/documents', requireAuth, async (c) => {
 const DOC_EDITABLE = new Set([
   'client_name', 'client_address', 'client_zip', 'client_city', 'client_email',
   'client_type', 'title', 'intro', 'notes', 'due_date', 'small_business', 'vat_rate',
-  'buyer_reference', 'client_vat_id',
+  'buyer_reference', 'client_vat_id', 'include_payment_link',
 ])
 
 app.patch('/api/documents/:id', requireAuth, async (c) => {
@@ -504,8 +504,12 @@ app.post('/api/documents/:id/send', requireAuth, async (c) => {
   const b = (await c.req.json().catch(() => ({}))) as { include_payment_link?: boolean }
   const s = getSettings()
 
+  // Explicit request value wins; otherwise honour the invoice's stored preference
+  // (a Serienrechnung carries its template's setting onto each generated draft).
+  const wantLink = b.include_payment_link ?? !!doc.include_payment_link
+
   let payLine = ''
-  if (b.include_payment_link && doc.kind === 'rechnung') {
+  if (wantLink && doc.kind === 'rechnung') {
     const open = doc.totals.gross_cents - doc.paid_cents
     const pay = resolveAdapter('payment') as PaymentProvider | null
     if (pay && open > 0) {

@@ -36,6 +36,7 @@ function blankDraft(config: Config): Draft {
     small_business: 1,
     vat_rate: 19,
     active: 1,
+    include_payment_link: 1,
     itemList: [{ ...EMPTY_ITEM }],
   }
 }
@@ -114,6 +115,7 @@ export function RecurringView({ config }: { config: Config }) {
         small_business: draft.small_business,
         vat_rate: draft.vat_rate,
         active: draft.active,
+        include_payment_link: draft.include_payment_link,
         items,
       }
       if (draft.id) await api.updateRecurring(draft.id, body)
@@ -246,6 +248,14 @@ export function RecurringView({ config }: { config: Config }) {
               <label>Summe je Lauf</label>
               <input value={euro(gross)} disabled />
             </div>
+            <label className="check-row" title="Beim Versand der festgeschriebenen Rechnung einen Online-Zahlungslink (Stripe/GoCardless) in die E-Mail aufnehmen.">
+              <input
+                type="checkbox"
+                checked={!!d.include_payment_link}
+                onChange={(e) => setD({ include_payment_link: e.target.checked ? 1 : 0 })}
+              />
+              Zahlungslink anbieten
+            </label>
           </div>
 
           <div className="field">
