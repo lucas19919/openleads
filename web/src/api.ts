@@ -14,6 +14,8 @@ import type {
   InvoiceDraft,
   Mahnung,
   Lead,
+  PaymentLink,
+  VatValidation,
   LeadAnalysis,
   LeadEvent,
   NewLead,
@@ -150,6 +152,19 @@ export const api = {
   pdfUrl: (id: number) => `/api/documents/${id}/pdf`,
   validateDocument: (id: number) =>
     req<{ validation: ValidationResult }>(`/documents/${id}/validate`),
+  documentPaymentLink: (id: number) =>
+    req<{ payment_link: PaymentLink }>(`/documents/${id}/payment-link`, { method: 'POST' }),
+  sendDocument: (id: number, include_payment_link = false) =>
+    req<{ ok: true; messageId: string; to: string }>(`/documents/${id}/send`, {
+      method: 'POST',
+      body: JSON.stringify({ include_payment_link }),
+    }),
+  validateVat: (id: number) =>
+    req<{ validation: VatValidation }>(`/documents/${id}/validate-vat`, { method: 'POST' }),
+  pushAccounting: (id: number) =>
+    req<{ result: { external_id: string; url?: string } }>(`/documents/${id}/push-accounting`, {
+      method: 'POST',
+    }),
 
   // --- Zahlungen (payments) ---
   listPayments: (id: number) => req<PaymentSummary>(`/documents/${id}/payments`),
@@ -295,6 +310,9 @@ export const api = {
     ),
   deleteIntegration: (id: number) =>
     req<{ ok: true }>(`/integrations/connections/${id}`, { method: 'DELETE' }),
+  startOAuth: (id: number) => req<{ url: string }>(`/integrations/oauth/${id}/authorize`),
+  disconnectOAuth: (id: number) =>
+    req<{ ok: true }>(`/integrations/oauth/${id}/disconnect`, { method: 'POST' }),
 
   // --- public API keys (admin) ---
   listApiKeys: () => req<{ keys: ApiKey[] }>('/admin/api-keys'),
@@ -326,6 +344,8 @@ export const api = {
     req<{ deliveries: WebhookDelivery[] }>(`/admin/webhooks/${id}/deliveries`),
   redeliverWebhook: (deliveryId: number) =>
     req<{ ok: true }>(`/admin/webhooks/deliveries/${deliveryId}/redeliver`, { method: 'POST' }),
+  rotateWebhookSecret: (id: number) =>
+    req<{ secret: string }>(`/admin/webhooks/${id}/rotate-secret`, { method: 'POST' }),
 
   // --- DSGVO ---
   dsgvoExportUrl: (leadId: number) => `/api/dsgvo/lead/${leadId}/export`,

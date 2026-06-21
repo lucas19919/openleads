@@ -63,6 +63,10 @@ import { registerIntegrationRoutes } from './integrations/router'
 import { registerPublicApiRoutes } from './publicapi/router'
 import { registerWebhookRoutes } from './webhooks/router'
 import { startWebhookDispatcher } from './webhooks/dispatcher'
+import { resolve as resolveAdapter } from './integrations/registry'
+import type { PaymentProvider, AccountingProvider } from './integrations/types'
+import { splitVatId } from './integrations/adapters/vies'
+import { sendInvoiceMail, SMTP } from './mailer'
 
 type Vars = { user: Pick<UserRow, 'id' | 'username' | 'role'> }
 const app = new Hono<{ Variables: Vars }>()
@@ -405,7 +409,7 @@ app.post('/api/documents', requireAuth, async (c) => {
 const DOC_EDITABLE = new Set([
   'client_name', 'client_address', 'client_zip', 'client_city', 'client_email',
   'client_type', 'title', 'intro', 'notes', 'due_date', 'small_business', 'vat_rate',
-  'buyer_reference',
+  'buyer_reference', 'client_vat_id',
 ])
 
 app.patch('/api/documents/:id', requireAuth, async (c) => {
@@ -427,8 +431,15 @@ app.patch('/api/documents/:id', requireAuth, async (c) => {
   for (const key of [...DOC_EDITABLE, 'status']) {
     if (!(key in b)) continue
     const v = b[key]
+    // node:sqlite binds only string|number|null — coerce booleans, skip non-scalar
+    // (object/array) values rather than letting .run() throw a raw 500.
+    let bound: string | number | null
+    if (v === undefined || v === null) bound = null
+    else if (typeof v === 'boolean') bound = v ? 1 : 0
+    else if (typeof v === 'string' || typeof v === 'number') bound = v
+    else continue
     sets.push(`${key} = @${key}`)
-    params[key] = typeof v === 'boolean' ? (v ? 1 : 0) : ((v as string | number | null) ?? null)
+    params[key] = bound
   }
   if (sets.length) {
     sets.push("updated_at = datetime('now')")
@@ -459,6 +470,116 @@ app.get('/api/documents/:id/validate', requireAuth, (c) => {
   const doc = getDocument(Number(c.req.param('id')))
   if (!doc) return c.json({ error: 'not found' }, 404)
   return c.json({ validation: validateInvoice(doc, getSettings()) })
+})
+
+// Create a hosted payment link (Stripe/GoCardless/…) for the invoice's OPEN amount.
+app.post('/api/documents/:id/payment-link', requireAuth, async (c) => {
+  const doc = getDocument(Number(c.req.param('id')))
+  if (!doc) return c.json({ error: 'not found' }, 404)
+  if (doc.kind !== 'rechnung' || !doc.number) {
+    return c.json({ error: 'Zahlungslink nur für ausgestellte Rechnungen.' }, 400)
+  }
+  const open = doc.totals.gross_cents - doc.paid_cents
+  if (open <= 0) return c.json({ error: 'Rechnung ist bereits vollständig bezahlt.' }, 409)
+  const pay = resolveAdapter('payment') as PaymentProvider | null
+  if (!pay) return c.json({ error: 'Kein aktiver Zahlungsanbieter konfiguriert.' }, 400)
+  try {
+    const link = await pay.createPaymentLink(
+      { amount_cents: open, currency: 'eur', description: `${doc.title ?? 'Rechnung'} ${doc.number}`, document_id: doc.id, customer_email: doc.client_email },
+      { actor: c.get('user').username },
+    )
+    audit({ actor: c.get('user').username, action: 'invoice.payment_link', entity: 'document', entityId: doc.id, detail: { amount_cents: open, provider: pay.provider } })
+    return c.json({ payment_link: link })
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 502)
+  }
+})
+
+// E-mail a finalised document as a PDF to the client, optionally with a pay link.
+app.post('/api/documents/:id/send', requireAuth, async (c) => {
+  const doc = getDocument(Number(c.req.param('id')))
+  if (!doc) return c.json({ error: 'not found' }, 404)
+  if (!doc.number) return c.json({ error: 'Nur ausgestellte Dokumente können versendet werden.' }, 400)
+  if (!doc.client_email) return c.json({ error: 'Kein Empfänger (E-Mail) am Dokument hinterlegt.' }, 400)
+  const b = (await c.req.json().catch(() => ({}))) as { include_payment_link?: boolean }
+  const s = getSettings()
+
+  let payLine = ''
+  if (b.include_payment_link && doc.kind === 'rechnung') {
+    const open = doc.totals.gross_cents - doc.paid_cents
+    const pay = resolveAdapter('payment') as PaymentProvider | null
+    if (pay && open > 0) {
+      try {
+        const link = await pay.createPaymentLink(
+          { amount_cents: open, currency: 'eur', description: `${doc.title ?? 'Rechnung'} ${doc.number}`, document_id: doc.id, customer_email: doc.client_email },
+          { actor: c.get('user').username },
+        )
+        payLine = `\n\nBequem online bezahlen: ${link.url}\n`
+      } catch {
+        // a missing/failed payment provider must not block sending the invoice
+      }
+    }
+  }
+
+  let pdf: Buffer
+  try {
+    pdf = await renderDocumentPdf(doc, s)
+  } catch (e) {
+    return c.json({ error: 'PDF konnte nicht erstellt werden: ' + (e as Error).message }, 500)
+  }
+  const label = doc.kind === 'rechnung' ? 'Rechnung' : 'Angebot'
+  const greeting = doc.client_name ? `Sehr geehrte Damen und Herren bei ${doc.client_name},` : 'Sehr geehrte Damen und Herren,'
+  const body =
+    `${greeting}\n\nanbei erhalten Sie ${label === 'Rechnung' ? 'unsere Rechnung' : 'unser Angebot'} ${doc.number} als PDF.${payLine}\n\n` +
+    `Mit freundlichen Grüßen\n${s.business_name ?? ''}`
+  const email = { to: doc.client_email, from: SMTP.from || s.email || '', subject: `${label} ${doc.number}`, text: body }
+  try {
+    const { messageId } = await sendInvoiceMail(email, { filename: pdfFilename(doc), content: pdf })
+    audit({ actor: c.get('user').username, action: 'invoice.send', entity: 'document', entityId: doc.id, detail: { to: email.to, messageId, payment_link: !!payLine } })
+    emit('invoice.sent', { id: doc.id, number: doc.number, kind: doc.kind, to: email.to })
+    return c.json({ ok: true, messageId, to: email.to })
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 502)
+  }
+})
+
+// Validate the document's client USt-IdNr via the active accounting adapter (VIES).
+app.post('/api/documents/:id/validate-vat', requireAuth, async (c) => {
+  const doc = getDocument(Number(c.req.param('id')))
+  if (!doc) return c.json({ error: 'not found' }, 404)
+  const raw = (doc.client_vat_id ?? '').trim()
+  if (!raw) return c.json({ error: 'Keine USt-IdNr. am Dokument hinterlegt.' }, 400)
+  const acc = resolveAdapter('accounting') as AccountingProvider | null
+  if (!acc) return c.json({ error: 'Kein aktiver Prüfdienst (z.B. VIES) konfiguriert.' }, 400)
+  const { country, number } = splitVatId(raw)
+  if (!country || !number) return c.json({ error: 'USt-IdNr. unvollständig (Ländercode + Nummer erwartet).' }, 400)
+  try {
+    const validation = await acc.validateVatId(country, number, { actor: c.get('user').username })
+    audit({ actor: c.get('user').username, action: 'invoice.vat_check', entity: 'document', entityId: doc.id, detail: { vat_id: raw, valid: validation.valid, provider: acc.provider } })
+    return c.json({ validation })
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 502)
+  }
+})
+
+// Push a finalised invoice to the active accounting system (lexoffice/sevDesk).
+app.post('/api/documents/:id/push-accounting', requireAuth, async (c) => {
+  const doc = getDocument(Number(c.req.param('id')))
+  if (!doc) return c.json({ error: 'not found' }, 404)
+  if (doc.kind !== 'rechnung' || !doc.number) {
+    return c.json({ error: 'Nur ausgestellte Rechnungen können übergeben werden.' }, 400)
+  }
+  const acc = resolveAdapter('accounting') as AccountingProvider | null
+  if (!acc || !acc.pushInvoice) {
+    return c.json({ error: 'Kein Buchhaltungs-Anbieter mit Export aktiv (lexoffice/sevDesk).' }, 400)
+  }
+  try {
+    const result = await acc.pushInvoice(doc, { actor: c.get('user').username })
+    audit({ actor: c.get('user').username, action: 'invoice.push_accounting', entity: 'document', entityId: doc.id, detail: { provider: acc.provider, external_id: result.external_id } })
+    return c.json({ result })
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 502)
+  }
 })
 
 // --- Mahnwesen (dunning) ---------------------------------------------------

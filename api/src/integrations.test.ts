@@ -112,3 +112,17 @@ test('SMTP adapter reports its category and unconfigured probe', async () => {
   const p = await adapter.probe() // SMTP not configured in tests
   assert.equal(p.ok, false)
 })
+
+test('Stripe createPaymentLink rejects non-positive / non-integer amounts (before any network)', async () => {
+  const adapter = stripeDefinition.build({
+    id: 0, category: 'payment', provider: 'stripe', label: null,
+    config: { success_url: 'https://shop.example/ok' }, secrets: { secret_key: 'sk_test' },
+  })
+  await assert.rejects(() => adapter.createPaymentLink({ amount_cents: 0, currency: 'eur' }, { actor: null }), /positive Ganzzahl/)
+  await assert.rejects(() => adapter.createPaymentLink({ amount_cents: 12.5, currency: 'eur' }, { actor: null }), /positive Ganzzahl/)
+})
+
+test('splitVatId handles empty + lowercase + spaced input', () => {
+  assert.deepEqual(splitVatId(''), { country: '', number: '' })
+  assert.deepEqual(splitVatId('de 123 456'), { country: 'DE', number: '123456' })
+})

@@ -1,3 +1,5 @@
+import type { FullDocument } from '../documents'
+
 // Per-CATEGORY adapter interfaces for the integrations module.
 //
 // The contract mirrors the codebase's idioms: small methods, German user-facing
@@ -119,6 +121,12 @@ export interface AccountingProvider extends IntegrationAdapter {
     vatNumber: string,
     ctx: IntegrationContext,
   ): Promise<VatValidation>
+  /**
+   * Push a finalised invoice to the accounting system (lexoffice/sevDesk).
+   * Optional — VIES doesn't implement it. Returns the provider's record id/url.
+   * `FullDocument` is a type-only import (erased at build → no runtime cycle).
+   */
+  pushInvoice?(doc: FullDocument, ctx: IntegrationContext): Promise<{ external_id: string; url?: string }>
 }
 
 // --- mail -------------------------------------------------------------------

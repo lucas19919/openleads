@@ -100,3 +100,27 @@ export async function sendMail(email: ComposedEmail): Promise<{ messageId: strin
   })
   return { messageId: info.messageId }
 }
+
+/** Send an email with a PDF attachment (used to deliver a Rechnung/Angebot). */
+export async function sendInvoiceMail(
+  email: ComposedEmail,
+  attachment: { filename: string; content: Buffer },
+): Promise<{ messageId: string }> {
+  if (!isMailConfigured()) throw new Error('SMTP ist nicht konfiguriert (SMTP_HOST/SMTP_FROM).')
+  const transport = nodemailer.createTransport({
+    host: SMTP.host,
+    port: SMTP.port,
+    secure: SMTP.secure,
+    auth: SMTP.user ? { user: SMTP.user, pass: SMTP.pass } : undefined,
+  })
+  const info = await transport.sendMail({
+    from: email.from,
+    to: email.to,
+    subject: email.subject,
+    text: email.text,
+    attachments: [
+      { filename: attachment.filename, content: attachment.content, contentType: 'application/pdf' },
+    ],
+  })
+  return { messageId: info.messageId }
+}

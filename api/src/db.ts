@@ -419,6 +419,31 @@ CREATE TABLE IF NOT EXISTS webhook_deliveries (
 );
 CREATE INDEX IF NOT EXISTS idx_whdeliv_due ON webhook_deliveries(status, next_attempt_at);
 CREATE INDEX IF NOT EXISTS idx_whdeliv_endpoint ON webhook_deliveries(endpoint_id, created_at DESC);
+
+-- OAuth2 token store for connections that authenticate via OAuth (Google,
+-- Microsoft). Access + refresh tokens are AES-256-GCM ciphertext (secrets.ts) —
+-- never plaintext. One row per connection.
+CREATE TABLE IF NOT EXISTS oauth_tokens (
+  id                INTEGER PRIMARY KEY,
+  connection_id     INTEGER NOT NULL UNIQUE REFERENCES integration_connections(id) ON DELETE CASCADE,
+  account_email     TEXT,                  -- the connected account (for the UI)
+  access_token_enc  TEXT,                  -- AES-256-GCM ciphertext
+  refresh_token_enc TEXT,                  -- AES-256-GCM ciphertext
+  expires_at        INTEGER,               -- epoch seconds when the access token expires
+  scope             TEXT,
+  created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at        TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Single-use CSRF state for the OAuth authorize→callback round-trip. The
+-- redirect_uri is stored so the token exchange binds it byte-for-byte. Rows are
+-- deleted on callback and pruned after a short TTL.
+CREATE TABLE IF NOT EXISTS oauth_pending (
+  state         TEXT PRIMARY KEY,
+  connection_id INTEGER NOT NULL REFERENCES integration_connections(id) ON DELETE CASCADE,
+  redirect_uri  TEXT NOT NULL,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
 `)
 
 // Basiszinssatz (%) used for §288 BGB Verzugszinsen (configurable; changes
@@ -449,6 +474,13 @@ try {
 // dunning. Defaults to 'geschaeft' so existing invoices keep today's behaviour.
 try {
   db.exec("ALTER TABLE documents ADD COLUMN client_type TEXT NOT NULL DEFAULT 'geschaeft'")
+} catch {
+  // column already exists
+}
+
+// Client USt-IdNr. (EU VAT id) — validated via the active accounting adapter (VIES).
+try {
+  db.exec('ALTER TABLE documents ADD COLUMN client_vat_id TEXT')
 } catch {
   // column already exists
 }
@@ -636,6 +668,7 @@ export interface DocumentRow {
   vat_rate: number
   buyer_reference: string | null
   client_type: string
+  client_vat_id: string | null
   created_at: string
   updated_at: string
 }
@@ -810,6 +843,25 @@ export interface WebhookDeliveryRow {
   last_error: string | null
   created_at: string
   updated_at: string
+}
+
+export interface OAuthTokenRow {
+  id: number
+  connection_id: number
+  account_email: string | null
+  access_token_enc: string | null
+  refresh_token_enc: string | null
+  expires_at: number | null
+  scope: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface OAuthPendingRow {
+  state: string
+  connection_id: number
+  redirect_uri: string
+  created_at: string
 }
 
 /** Normalise a URL or hostname to a bare registrable-ish domain for dedupe. */

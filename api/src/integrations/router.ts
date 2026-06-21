@@ -18,6 +18,13 @@ import {
   setStatus,
 } from './registry'
 import type { IntegrationCategory, PaymentProvider } from './types'
+import { createPendingAuthUrl, completeCallback, isOAuthConnected, disconnectOAuth } from './oauth'
+
+// Minimal self-closing page shown after the OAuth redirect (sanitised message).
+function oauthHtml(message: string): string {
+  const safe = message.replace(/[<>&]/g, '')
+  return `<!doctype html><meta charset="utf-8"><title>OpenLeads</title><body style="font-family:system-ui;padding:40px;text-align:center;color:#1c2733"><p>${safe}</p><script>setTimeout(function(){window.close()},2500)</script></body>`
+}
 
 // /api/integrations/* — management routes are admin-only; the inbound provider
 // webhook receiver is intentionally UNAUTHENTICATED and gated SOLELY by the
@@ -38,6 +45,7 @@ function publicConnection(r: IntegrationConnectionRow) {
   } catch {
     /* keep {} */
   }
+  const oauth = isOAuthConnected(r.id)
   return {
     id: r.id,
     category: r.category,
@@ -48,6 +56,8 @@ function publicConnection(r: IntegrationConnectionRow) {
     status_detail: r.status_detail,
     config, // only non-secret fields ever land here
     credentials_set: !!r.credentials_enc,
+    oauth_connected: oauth.connected,
+    account_email: oauth.account_email,
     created_at: r.created_at,
     updated_at: r.updated_at,
   }
@@ -124,6 +134,46 @@ export function registerIntegrationRoutes(app: App, requireAdmin: MiddlewareHand
   app.delete('/api/integrations/connections/:id', requireAdmin, (c) => {
     const id = Number(c.req.param('id'))
     if (!deleteConnection(id, actorOf(c))) return c.json({ error: 'not found' }, 404)
+    return c.json({ ok: true })
+  })
+
+  // --- OAuth connect flow (Google / Microsoft) ------------------------------
+  // Mint a single-use state + return the provider authorize URL for the operator
+  // to open. The connection's client_id/redirect_uri must already be saved.
+  app.get('/api/integrations/oauth/:id/authorize', requireAdmin, (c) => {
+    const id = Number(c.req.param('id'))
+    try {
+      const url = createPendingAuthUrl(id)
+      audit({ actor: actorOf(c), action: 'integration.oauth.authorize', entity: 'integration', entityId: id })
+      return c.json({ url })
+    } catch (e) {
+      return c.json({ error: (e as Error).message }, 400)
+    }
+  })
+
+  // The OAuth redirect target. UNAUTHENTICATED (a browser top-level redirect can
+  // carry no session) — gated SOLELY by the single-use CSRF state.
+  app.get('/api/integrations/oauth/callback', async (c) => {
+    const code = c.req.query('code')
+    const state = c.req.query('state')
+    const oauthError = c.req.query('error')
+    if (oauthError) return c.html(oauthHtml(`Verbindung abgebrochen: ${oauthError}`), 400)
+    if (!code || !state) return c.html(oauthHtml('Fehlende Parameter.'), 400)
+    try {
+      const { connection_id, account_email } = await completeCallback(state, code)
+      setStatus(connection_id, 'ok', account_email ? `Verbunden als ${account_email}` : 'Verbunden')
+      audit({ actor: 'oauth', action: 'integration.oauth.connect', entity: 'integration', entityId: connection_id, detail: { account_email } })
+      return c.html(oauthHtml(`Verbunden${account_email ? ' als ' + account_email : ''}. Du kannst dieses Fenster schließen.`))
+    } catch (e) {
+      return c.html(oauthHtml((e as Error).message), 400)
+    }
+  })
+
+  app.post('/api/integrations/oauth/:id/disconnect', requireAdmin, (c) => {
+    const id = Number(c.req.param('id'))
+    disconnectOAuth(id)
+    setStatus(id, 'unconfigured', null)
+    audit({ actor: actorOf(c), action: 'integration.oauth.disconnect', entity: 'integration', entityId: id })
     return c.json({ ok: true })
   })
 

@@ -121,6 +121,27 @@ export function registerWebhookRoutes(app: App, requireAdmin: MiddlewareHandler)
     return c.json({ endpoint: publicEndpoint(updated) })
   })
 
+  // Rotate the signing secret: issue a new one, shown ONCE. The dispatcher signs
+  // at send time and re-decrypts per attempt, so every pending delivery picks up
+  // the new secret immediately — no stale-signature window.
+  app.post('/api/admin/webhooks/:id/rotate-secret', requireAdmin, (c) => {
+    const id = Number(c.req.param('id'))
+    const row = db.prepare('SELECT id FROM webhook_endpoints WHERE id = ?').get(id) as
+      | { id: number }
+      | undefined
+    if (!row) return c.json({ error: 'not found' }, 404)
+    const secret = `whsec_${randomBytes(24).toString('hex')}`
+    let secret_enc: string
+    try {
+      secret_enc = encryptSecret(secret)
+    } catch (e) {
+      return c.json({ error: (e as Error).message }, 400)
+    }
+    db.prepare("UPDATE webhook_endpoints SET secret_enc = ?, updated_at = datetime('now') WHERE id = ?").run(secret_enc, id)
+    audit({ actor: actorOf(c), action: 'webhook.rotate_secret', entity: 'webhook_endpoint', entityId: id })
+    return c.json({ secret })
+  })
+
   app.delete('/api/admin/webhooks/:id', requireAdmin, (c) => {
     const id = Number(c.req.param('id'))
     const info = db.prepare('DELETE FROM webhook_endpoints WHERE id = ?').run(id)

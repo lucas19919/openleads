@@ -172,9 +172,37 @@ function ProviderCard({
   }
 
   async function remove() {
-    if (!connection || !confirm(`${provider.label} trennen?`)) return
+    if (!connection || !confirm(`${provider.label} entfernen?`)) return
     try {
       await api.deleteIntegration(connection.id)
+      onChange()
+    } catch (e) {
+      onError((e as Error).message)
+    }
+  }
+
+  // OAuth providers (Google/Microsoft) need a consent round-trip after saving the
+  // client_id/secret/redirect_uri — connect opens the provider's consent window.
+  const isOAuth = provider.provider === 'google' || provider.provider === 'microsoft'
+  async function connectOAuth() {
+    if (!connection) {
+      onError('Bitte zuerst speichern.')
+      return
+    }
+    onError(null)
+    try {
+      const { url } = await api.startOAuth(connection.id)
+      window.open(url, '_blank', 'width=520,height=680')
+      setTimeout(onChange, 4000) // refresh state after the popup completes
+    } catch (e) {
+      onError((e as Error).message)
+    }
+  }
+  async function disconnectAccount() {
+    if (!connection) return
+    onError(null)
+    try {
+      await api.disconnectOAuth(connection.id)
       onChange()
     } catch (e) {
       onError((e as Error).message)
@@ -188,6 +216,11 @@ function ProviderCard({
         <span className="muted-mono">{provider.category}</span>
         {connection?.active && <span className="status-pill ok">aktiv</span>}
         {connection && <span className={`status-pill ${connection.status}`}>{statusLabel(connection.status)}</span>}
+        {isOAuth && connection?.oauth_connected && (
+          <span className="status-pill ok">
+            Verbunden{connection.account_email ? ' · ' + connection.account_email : ''}
+          </span>
+        )}
       </div>
       {connection?.status_detail && <p className="settings-hint">{connection.status_detail}</p>}
       {provider.configSchema.length === 0 && (
@@ -210,9 +243,20 @@ function ProviderCard({
             Verbindung testen
           </button>
         )}
+        {isOAuth &&
+          connection &&
+          (connection.oauth_connected ? (
+            <button className="ghost" onClick={disconnectAccount} disabled={busy}>
+              Abmelden
+            </button>
+          ) : (
+            <button className="ghost" onClick={connectOAuth} disabled={busy}>
+              Verbinden
+            </button>
+          ))}
         {connection && (
           <button className="ghost danger-text" onClick={remove} disabled={busy}>
-            Trennen
+            Entfernen
           </button>
         )}
       </div>
@@ -463,6 +507,17 @@ function WebhooksSection() {
     }
   }
 
+  async function rotate(ep: WebhookEndpoint) {
+    if (!confirm(`Signaturgeheimnis für ${ep.url} neu erzeugen? Das alte wird sofort ungültig.`)) return
+    setError(null)
+    try {
+      const { secret } = await api.rotateWebhookSecret(ep.id)
+      setNewSecret(secret)
+    } catch (e) {
+      setError((e as Error).message)
+    }
+  }
+
   return (
     <fieldset className="doc-block">
       <legend>Webhooks</legend>
@@ -492,6 +547,9 @@ function WebhooksSection() {
             </button>
             <button className="ghost" onClick={() => setOpenDeliveries(openDeliveries === ep.id ? null : ep.id)}>
               {openDeliveries === ep.id ? 'Zustellungen ausblenden' : 'Zustellungen'}
+            </button>
+            <button className="ghost" onClick={() => rotate(ep)}>
+              Secret rotieren
             </button>
             <button className="ghost danger-text" onClick={() => remove(ep)}>
               Löschen

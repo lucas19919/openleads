@@ -117,10 +117,26 @@ export function saveConnection(input: {
 }): number {
   const def = getDefinition(input.category, input.provider)
   if (!def) throw new Error('Unbekannter Anbieter.')
-  const enc =
-    input.secrets && Object.keys(input.secrets).length
-      ? encryptSecret(JSON.stringify(input.secrets))
-      : null
+  // Merge submitted secrets into the connection's existing secret blob, so a
+  // partial update (e.g. rotating only one of GoCardless's two secrets) doesn't
+  // wipe the co-stored ones. This honours the UI's "leer lassen zum Beibehalten".
+  let enc: string | null = null
+  if (input.secrets && Object.keys(input.secrets).length) {
+    const existingRow = db
+      .prepare('SELECT credentials_enc FROM integration_connections WHERE category = ? AND provider = ?')
+      .get(input.category, input.provider) as { credentials_enc: string | null } | undefined
+    let merged: Record<string, string> = {}
+    const dec = decryptSecret(existingRow?.credentials_enc)
+    if (dec) {
+      try {
+        merged = JSON.parse(dec)
+      } catch {
+        /* start fresh */
+      }
+    }
+    merged = { ...merged, ...input.secrets }
+    enc = encryptSecret(JSON.stringify(merged))
+  }
   const info = db
     .prepare(
       `INSERT INTO integration_connections (category, provider, label, config, credentials_enc, status)

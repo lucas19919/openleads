@@ -173,6 +173,7 @@ export interface Doc {
   vat_rate: number
   buyer_reference?: string | null
   client_type: string
+  client_vat_id?: string | null
   created_at: string
   updated_at: string
   items: DocItem[]
@@ -431,6 +432,8 @@ export interface IntegrationConnection {
   status_detail: string | null
   config: Record<string, unknown>
   credentials_set: boolean
+  oauth_connected?: boolean
+  account_email?: string | null
   created_at: string
   updated_at: string
 }
@@ -468,6 +471,22 @@ export interface WebhookDelivery {
   last_error: string | null
   created_at: string
   updated_at: string
+}
+
+export interface VatValidation {
+  valid: boolean
+  country_code: string
+  vat_number: string
+  name?: string | null
+  address?: string | null
+}
+
+export interface PaymentLink {
+  id: string
+  url: string
+  amount_cents: number
+  currency: string
+  status: string
 }
 
 export type NewLead = Partial<

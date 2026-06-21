@@ -202,3 +202,66 @@ Verify over the **raw bytes** — re-serializing parsed JSON changes the signatu
 | `SETTINGS_KEY` | Required in production to store any integration credential or webhook secret (already used by `secrets.ts`). |
 | `WEBHOOKS_DISABLE=1` | Turn the outbound dispatcher off. |
 | `WEBHOOKS_ALLOW_HTTP=1` | Allow plain-HTTP webhook targets (dev only — still blocks private IPs). |
+
+---
+
+## Shipped providers
+
+| Category | Providers |
+|---|---|
+| payment | `stripe`, `gocardless` (SEPA) |
+| accounting | `vies` (USt-IdNr.), `lexoffice`, `sevdesk` |
+| mail | `smtp`, `google` (Gmail), `microsoft` (Graph) |
+| calendar | `google`, `microsoft` |
+| telephony | `sipgate` |
+
+Each is configured under **Settings → Integrationen**. Credential-bearing adapters
+pin their base host (never operator-supplied). Per-provider auth gotchas: GoCardless
+uses `GoCardless-Version` + `Idempotency-Key` and a **plain** HMAC-SHA256 webhook
+signature (no timestamp); sevDesk sends the **raw** token in `Authorization` (not
+`Bearer`); sipgate uses HTTP Basic.
+
+## The invoice money loop
+
+On a finalised invoice (`DocumentEditor`): **Zahlungslink** (`POST /api/documents/:id/payment-link`,
+open amount = gross − paid), **Per E-Mail senden** (`/send`, PDF + optional pay link),
+**Prüfen (VIES)** for the client `client_vat_id` (`/validate-vat`), **An Buchhaltung**
+(`/push-accounting` → lexoffice/sevDesk). Webhook secrets can be rotated
+(`POST /api/admin/webhooks/:id/rotate-secret`, shown once). Public-API equivalents:
+`POST /api/v1/documents/:id/payment-link`, `POST /api/v1/documents/:id/payments`
+(scope `payments:write`), `GET /api/v1/stats/pipeline` (scope `stats:read`). New
+webhook event: `invoice.sent`.
+
+## OAuth providers (Google / Microsoft)
+
+Mail + calendar over OAuth2. Tokens are AES-256-GCM encrypted at rest and never
+returned to the client. Each provider ships as **two connections** (mail + calendar)
+because the registry resolves one adapter per category. Flow: save the connection's
+`client_id` / `client_secret` / `redirect_uri` (and `tenant` for Microsoft), then
+click **Verbinden** → consent → the callback stores tokens; **Abmelden** clears them.
+
+**Operator setup** (there is **no** `PUBLIC_BASE_URL` — the `redirect_uri` is a
+per-connection field, bound byte-for-byte at token exchange):
+- **Google Cloud**: enable Gmail + Calendar APIs, configure the OAuth consent screen,
+  create a **Web** OAuth client, set the redirect URI to
+  `https://crm.example.com/api/integrations/oauth/callback`. Unverified *External*
+  apps issue 7-day refresh tokens — verify the app for production.
+- **Microsoft Entra**: register an app with a **Web** redirect (same callback URL),
+  create a client-secret **value**, delegated scopes `Mail.Send` +
+  `Calendars.ReadWrite` + `offline_access`; set `tenant` (or `common`).
+
+## MCP server
+
+`mcp/` is a stdio MCP server wrapping `/api/v1`, authenticated with an `ol_` API key
+(`OPENLEADS_API_KEY`) against `OPENLEADS_BASE_URL`. It exposes 9 tools (leads,
+documents, payments, pipeline stats) so OpenLeads is drivable from Claude Desktop.
+The `@modelcontextprotocol/sdk` lives only here — the API stays SDK-free. See
+[`mcp/README.md`](../mcp/README.md) for the Claude Desktop config and required scopes.
+
+## Not feasible as drop-in adapters
+
+Live **DATEVconnect** (needs the local DATEV client + connect-online certs), **Peppol**
+e-invoice delivery (needs an accredited AS4 access point + eIDAS certs), and a real
+**open-banking/FinTS** feed (PSD2 TPP licensing / product certs) require certified
+infrastructure and contracts — they are separate licensed-integration projects, not
+fetch-only adapters.

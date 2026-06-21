@@ -70,5 +70,8 @@ test('listApiKeys never leaks the hash; revoke fails closed', () => {
 })
 
 test('scope vocabulary is the documented set', () => {
-  assert.deepEqual([...API_SCOPES], ['leads:read', 'leads:write', 'documents:read', 'documents:write'])
+  assert.deepEqual(
+    [...API_SCOPES],
+    ['leads:read', 'leads:write', 'documents:read', 'documents:write', 'payments:write', 'stats:read'],
+  )
 })

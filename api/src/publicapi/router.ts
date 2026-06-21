@@ -4,6 +4,10 @@ import { audit } from '../audit'
 import { rateLimit } from '../ratelimit'
 import { getDocument, getSettings, replaceItems, type DocItemInput } from '../documents'
 import { insertLead, applyLeadUpdate } from '../leads'
+import { addPayment, paidCents } from '../payments'
+import { buildDashboard } from '../dashboard'
+import { resolve } from '../integrations/registry'
+import type { PaymentProvider } from '../integrations/types'
 import { emit } from '../webhooks/bus'
 import {
   API_SCOPES,
@@ -179,6 +183,57 @@ export function registerPublicApiRoutes(app: App, requireAdmin: MiddlewareHandle
     audit({ actor, action: 'document.create', entity: 'document', entityId: id, detail: { kind } })
     emit('document.created', { id, kind })
     return c.json({ data: getDocument(id) }, 201)
+  })
+
+  // Create a hosted payment link for an invoice's OPEN amount (via active provider).
+  app.post('/api/v1/documents/:id/payment-link', requireScope('documents:write'), async (c) => {
+    const doc = getDocument(Number(c.req.param('id')))
+    if (!doc) return c.json({ error: 'not found' }, 404)
+    if (doc.kind !== 'rechnung' || !doc.number) {
+      return c.json({ error: 'Zahlungslink nur für ausgestellte Rechnungen.' }, 400)
+    }
+    const open = doc.totals.gross_cents - doc.paid_cents
+    if (open <= 0) return c.json({ error: 'Rechnung ist bereits vollständig bezahlt.' }, 409)
+    const pay = resolve('payment') as PaymentProvider | null
+    if (!pay) return c.json({ error: 'Kein aktiver Zahlungsanbieter konfiguriert.' }, 400)
+    const actor = `api:${authedKey(c).prefix}`
+    try {
+      const link = await pay.createPaymentLink(
+        { amount_cents: open, currency: 'eur', description: `${doc.title ?? 'Rechnung'} ${doc.number}`, document_id: doc.id, customer_email: doc.client_email },
+        { actor },
+      )
+      audit({ actor, action: 'invoice.payment_link', entity: 'document', entityId: doc.id, detail: { amount_cents: open, provider: pay.provider } })
+      return c.json({ data: link })
+    } catch (e) {
+      return c.json({ error: (e as Error).message }, 502)
+    }
+  })
+
+  // Record a payment against an invoice (settling flips it to 'bezahlt').
+  app.post('/api/v1/documents/:id/payments', requireScope('payments:write'), async (c) => {
+    const doc = getDocument(Number(c.req.param('id')))
+    if (!doc) return c.json({ error: 'not found' }, 404)
+    if (doc.kind !== 'rechnung' || !doc.number) {
+      return c.json({ error: 'Zahlungen nur für ausgestellte Rechnungen.' }, 400)
+    }
+    const b = (await c.req.json().catch(() => ({}))) as Record<string, unknown>
+    const amount = Math.round(Number(b.amount_cents))
+    if (!Number.isFinite(amount) || amount <= 0) return c.json({ error: 'Betrag (Cent) muss positiv sein.' }, 400)
+    const actor = `api:${authedKey(c).prefix}`
+    const payment = addPayment(doc.id, {
+      amount_cents: amount,
+      paid_on: (b.paid_on as string) ?? null,
+      method: (b.method as string) ?? null,
+      note: (b.note as string) ?? null,
+    })
+    audit({ actor, action: 'invoice.payment', entity: 'document', entityId: doc.id, detail: { amount_cents: amount, paid_total_cents: paidCents(doc.id) } })
+    emit('payment.recorded', { document_id: doc.id, amount_cents: amount, paid_total_cents: paidCents(doc.id), source: 'api' })
+    return c.json({ data: { payment, document: getDocument(doc.id) } }, 201)
+  })
+
+  // Pipeline + invoice KPIs (read-only dashboard data).
+  app.get('/api/v1/stats/pipeline', requireScope('stats:read'), (c) => {
+    return c.json({ data: buildDashboard() })
   })
 
   // --- API key management (session admin only) ------------------------------

@@ -4,6 +4,39 @@ A running log of what's landed, so picking the work back up is easy. Newest firs
 
 ## Latest
 
+- **Connections: the money loop + more adapters + OAuth + an MCP server.** Built on
+  the integrations foundation; docs in `docs/INTEGRATIONS.md`.
+  - **Money loop closed** (fully verifiable): per-invoice **Stripe/GoCardless
+    payment link** (`POST /api/documents/:id/payment-link` + invoice button),
+    **e-mail the invoice PDF** to the client with an optional pay link
+    (`/send`), **VIES USt-IdNr. validation** (`/validate-vat` + a `client_vat_id`
+    field with a "Prüfen" button), **push to accounting** (`/push-accounting`),
+    and **webhook signing-secret rotation** (shown once; clean because the
+    dispatcher signs at send time). Public-API variants added under `/api/v1`
+    (payment-link, payments, `stats/pipeline`) with two new scopes
+    (`payments:write`, `stats:read`); new event `invoice.sent`.
+  - **New adapters** on the proven fetch-only, base-host-pinned pattern (pure
+    parts unit-tested; live calls behind methods): **GoCardless** (SEPA, billing
+    request flow + plain-HMAC webhook verify), **lexoffice** + **sevDesk**
+    (`pushInvoice` mapping the flat `FullDocument`, §19 Kleinunternehmer handled),
+    **sipgate** (click-to-call, E.164 normalisation).
+  - **OAuth2 framework** (`integrations/oauth.ts`): encrypted token store
+    (`oauth_tokens`/`oauth_pending`), single-use CSRF state, redirect-bound code
+    exchange, auto-refresh — driving **Google** (Gmail send + Calendar) and
+    **Microsoft Graph** (Outlook mail + Calendar) adapters. Each ships as two
+    connections (mail + calendar) since the registry resolves one adapter per
+    category. Operator registers an OAuth app and clicks "Verbinden" (live flow
+    needs the app; pure builders are unit-tested).
+  - **OpenLeads MCP server** (`mcp/`): a stdio MCP server wrapping `/api/v1`,
+    authenticated with an `ol_` API key, exposing 9 tools (leads, documents,
+    payments, pipeline stats) so the CRM is drivable from Claude Desktop. The
+    `@modelcontextprotocol/sdk` is isolated to `mcp/` — the API stays SDK-free.
+  - **11 providers** now register (payment ×2, accounting ×3, mail ×3, calendar
+    ×2, telephony ×1). **87 tests** total green (77 api + 14 mcp − overlap), all
+    typecheck clean, web builds, boot verified. Out of scope as drop-ins (need
+    certified infra/contracts): live DATEVconnect, Peppol access point, real
+    open-banking/FinTS.
+
 - **Integrations foundation** — the substrate the integration roadmap rides on,
   three coupled subsystems, all dependency-light + idiom-matched (docs:
   `docs/INTEGRATIONS.md`):

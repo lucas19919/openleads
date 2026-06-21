@@ -18,6 +18,8 @@ export const API_SCOPES = [
   'leads:write',
   'documents:read',
   'documents:write',
+  'payments:write',
+  'stats:read',
 ] as const
 export type ApiScope = (typeof API_SCOPES)[number]
 

@@ -16,6 +16,7 @@ export const WEBHOOK_EVENTS = [
   'lead.stage_changed',
   'document.created',
   'document.finalized',
+  'invoice.sent',
   'payment.recorded',
   'payment.deleted',
 ] as const
