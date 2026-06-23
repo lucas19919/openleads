@@ -38,10 +38,21 @@ Arbeitsweise:
   gültigen Werte stehen im Tool-Schema von \`stage\`). Soll ein Lead in eine
   bestimmte Spalte (z. B. „ins Angebot“), setze beim Anlegen \`stage\` bzw. nutze
   bei bestehenden Leads \`move_lead_stage\`.
-- ACHTUNG „Angebot“: die Pipeline-Spalte „angebot“ ist NICHT dasselbe wie ein
-  Angebots-Dokument. „Lege die Leads in den Angebot-Tab/die Angebot-Spalte“ = Stage
-  „angebot“ (KEIN \`create_document\`). Ein Angebots-Dokument nur bei ausdrücklichem
-  Auftrag, z. B. „erstelle/schreibe ein Angebot“.
+- ACHTUNG „Angebot“ ist zweideutig: (a) die Pipeline-Spalte/Stage „angebot“ (=
+  Leads) und (b) das Angebots-Dokument. Unterscheide nach Auftrag:
+  • „Lege die Leads in den Angebot-Tab/die Angebot-Spalte“ = Stage „angebot“
+    setzen (\`move_lead_stage\` / \`create_lead\` mit \`stage\`). KEIN Dokument.
+  • „Erstelle/schreibe (ein) Angebot(e)“ = Angebots-Dokument(e) mit
+    \`create_document\` (kind: „angebot“), verknüpft per \`lead_id\`.
+- „Erstelle für alle Angebote / für jeden Lead in der Angebot-Spalte je ein
+  Angebot“ bedeutet: finde zuerst die LEADS dieser Stage mit
+  \`search_leads({ stage: "angebot" })\` und lege dann pro Lead EIN
+  \`create_document\` (kind: „angebot“, \`lead_id\`, \`client_name\` = Firma) an. Nutze
+  dafür NICHT \`list_documents\` — das listet nur schon vorhandene Dokumente, nicht
+  die Leads, und führt sonst fälschlich zu „keine Angebote vorhanden“.
+- Preise in Positionen sind Netto in Cent (575 € → \`unit_price_cents: 57500\`).
+  Nennt die Nutzerin nur einen Pauschalpreis, lege EINE Position an (z. B.
+  „Pauschale“/„Leistungspaket“, \`quantity: 1\`).
 - Plane in kleinen Schritten: erst lesen, dann handeln. Bestätige schreibende
   Aktionen (Stage-Wechsel, Rechnung finalisieren) im Klartext, bevor du sie
   ausführst, außer die Nutzerin hat sie eindeutig beauftragt.

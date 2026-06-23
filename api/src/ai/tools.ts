@@ -287,10 +287,12 @@ export const TOOLS: AgentTool[] = [
 
   def(
     'create_document',
-    'Erstelle einen Entwurf (Angebot/Rechnung), optional mit Positionen und Bezug zu einem Lead. Nicht finalisiert.',
+    'Erstelle einen Entwurf (Angebot/Rechnung), optional mit Positionen und Bezug zu einem Lead. ' +
+      'Mit `lead_id` wird das Dokument mit dem Lead verknüpft; fehlt `client_name`, wird die Firma ' +
+      'des Leads als Empfänger übernommen. Nicht finalisiert.',
     obj({
       kind: { type: 'string', enum: ['angebot', 'rechnung'] },
-      client_name: { type: 'string' },
+      client_name: { type: 'string', description: 'Empfänger (falls leer und lead_id gesetzt: Firma des Leads)' },
       title: { type: 'string' },
       intro: { type: 'string' },
       notes: { type: 'string' },
@@ -308,13 +310,24 @@ export const TOOLS: AgentTool[] = [
     (a, ctx) => {
       const kind = a.kind === 'angebot' ? 'angebot' : 'rechnung'
       const s = getSettings()
+      // Resolve the lead link: a given lead_id must exist, and an empty client_name
+      // falls back to the lead's company so an offer is never addressed to nobody.
+      let leadId: number | null = null
+      let lead: LeadRow | undefined
+      if (a.lead_id != null) {
+        leadId = Number(a.lead_id)
+        lead = getLeadRow(leadId)
+        if (!lead) return { error: `Lead ${leadId} nicht gefunden` }
+      }
+      const clientName =
+        (typeof a.client_name === 'string' && a.client_name.trim()) || lead?.company || null
       const info = db.prepare(
         `INSERT INTO documents (kind, lead_id, client_name, title, intro, notes, small_business, vat_rate)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         kind,
-        a.lead_id != null ? Number(a.lead_id) : null,
-        (a.client_name as string) ?? null,
+        leadId,
+        clientName,
         (a.title as string) ?? (kind === 'rechnung' ? 'Rechnung' : 'Angebot'),
         (a.intro as string) ?? null,
         (a.notes as string) ?? null,

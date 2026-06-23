@@ -60,6 +60,28 @@ test('create_lead places the lead straight into the requested pipeline stage', a
   assert.equal(ev?.to_stage, 'angebot') // move was recorded, not just the row flipped
 })
 
+test('create_document links a lead and fills client_name from the lead company', async () => {
+  const lead = (await runTool('create_lead', { website: 'https://metzgerei-rosenheim.de', company: 'Metzgerei Rosenheim' }, ctx)) as {
+    lead: { id: number }
+  }
+  // No client_name passed — it must fall back to the lead's company, and the
+  // 575 € net price must persist as 57500 cents.
+  const res = (await runTool(
+    'create_document',
+    { kind: 'angebot', lead_id: lead.lead.id, items: [{ description: 'Pauschale', quantity: 1, unit_price_cents: 57500 }] },
+    ctx,
+  )) as { ok: boolean; document: { kind: string; lead_id: number; client_name: string; items: { unit_price_cents: number }[] } }
+  assert.equal(res.document.kind, 'angebot')
+  assert.equal(res.document.lead_id, lead.lead.id)
+  assert.equal(res.document.client_name, 'Metzgerei Rosenheim')
+  assert.equal(res.document.items[0].unit_price_cents, 57500)
+})
+
+test('create_document rejects a lead_id that does not exist', async () => {
+  const res = (await runTool('create_document', { kind: 'angebot', lead_id: 999999 }, ctx)) as { error?: string }
+  assert.match(res.error ?? '', /nicht gefunden/)
+})
+
 test('create_lead respects explicit fields and dedupes by domain', async () => {
   const a = (await runTool(
     'create_lead',
