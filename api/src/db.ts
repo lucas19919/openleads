@@ -593,6 +593,21 @@ for (const col of [
   }
 }
 
+// Same signed/returned-copy store on documents (Angebot/Rechnung) — so every paper
+// the operator issues can keep its signed or final scan with the record.
+for (const col of [
+  'signed_doc_data BLOB',
+  'signed_doc_name TEXT',
+  'signed_doc_mime TEXT',
+  'signed_doc_size INTEGER',
+]) {
+  try {
+    db.exec(`ALTER TABLE documents ADD COLUMN ${col}`)
+  } catch {
+    // column already exists
+  }
+}
+
 // AGB text + contract numbering live on the single-row settings table (added by a
 // late migration so existing databases pick them up). Constant defaults keep the
 // ADD COLUMN NOT NULL valid on SQLite.
@@ -633,39 +648,6 @@ CREATE TABLE IF NOT EXISTS catalog_items (
 );
 CREATE INDEX IF NOT EXISTS idx_catalog_active ON catalog_items(active, sort, name);
 `)
-
-// --- Zeiterfassung (time tracking) ------------------------------------------
-// Billable (or non-billable) time logged against a lead/client. Duration is kept
-// in whole minutes (no float drift); the billable amount is minutes/60 × the net
-// hourly rate. When entries are pulled into an invoice they get stamped with the
-// document_id + invoiced_at so they can never be billed twice.
-db.exec(`
-CREATE TABLE IF NOT EXISTS time_entries (
-  id              INTEGER PRIMARY KEY,
-  lead_id         INTEGER REFERENCES leads(id) ON DELETE SET NULL,
-  catalog_item_id INTEGER REFERENCES catalog_items(id) ON DELETE SET NULL,
-  document_id     INTEGER REFERENCES documents(id) ON DELETE SET NULL, -- set once invoiced
-  entry_date      TEXT NOT NULL,             -- YYYY-MM-DD
-  description     TEXT,
-  minutes         INTEGER NOT NULL DEFAULT 0,
-  rate_cents      INTEGER NOT NULL DEFAULT 0, -- net hourly rate
-  billable        INTEGER NOT NULL DEFAULT 1,
-  invoiced_at     TEXT,                       -- set when pulled into an invoice
-  created_by      TEXT,
-  created_at      TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
-);
-CREATE INDEX IF NOT EXISTS idx_time_date ON time_entries(entry_date DESC);
-CREATE INDEX IF NOT EXISTS idx_time_lead ON time_entries(lead_id);
-CREATE INDEX IF NOT EXISTS idx_time_uninvoiced ON time_entries(billable, document_id);
-`)
-
-// Default net hourly rate, prefilled in the Zeiterfassung form (0 = none).
-try {
-  db.exec('ALTER TABLE settings ADD COLUMN default_hourly_rate_cents INTEGER NOT NULL DEFAULT 0')
-} catch {
-  // column already exists
-}
 
 // --- Kunden (customer registry) ---------------------------------------------
 // A central customer list so a client is maintained once and prefilled into
@@ -982,8 +964,6 @@ export interface SettingsRow {
   contract_prefix?: string
   contract_next?: number
   agb_attach_documents?: number
-  // Zeiterfassung default rate (added by a late migration).
-  default_hourly_rate_cents?: number
 }
 
 export interface MahnungRow {
@@ -1026,6 +1006,12 @@ export interface DocumentRow {
   accounting_pushed_at: string | null
   created_at: string
   updated_at: string
+  // Signed/returned-copy store. The BLOB never leaves the server raw — getDocument
+  // strips it and exposes has_signed_doc instead.
+  signed_doc_data?: Uint8Array | null
+  signed_doc_name?: string | null
+  signed_doc_mime?: string | null
+  signed_doc_size?: number | null
 }
 
 export interface PaymentRow {
@@ -1167,22 +1153,6 @@ export interface BankTransactionRow {
   payment_id: number | null
   status: string
   created_at: string
-}
-
-export interface TimeEntryRow {
-  id: number
-  lead_id: number | null
-  catalog_item_id: number | null
-  document_id: number | null
-  entry_date: string
-  description: string | null
-  minutes: number
-  rate_cents: number
-  billable: number
-  invoiced_at: string | null
-  created_by: string | null
-  created_at: string
-  updated_at: string
 }
 
 export interface CatalogItemRow {

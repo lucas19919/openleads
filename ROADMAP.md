@@ -42,14 +42,13 @@ touch invoicing. OpenLeads is the one box that does the whole flow on-prem.
 - Leistungskatalog (services/products catalog): reusable line items (price/unit/
   USt/SKU), copied by value into documents; "+ Aus Katalog" picker in the invoice,
   quote and recurring editors; managed under Settings.
-- Zeiterfassung (time tracking): billable/non-billable entries against a lead;
-  minutes × net hourly rate; select unbilled entries → one-click draft Rechnung
-  (each entry a line), entries stamped invoiced so they're never double-billed.
-- AI copilot operates the new modules too: catalog, time tracking (log + invoice)
-  and contracts (draft + finalise) are exposed as audited agent tools, so the whole
-  suite stays drivable from the Chat — not just the UI.
-- Dashboard (Übersicht) extended: unbilled billable time (€/hours), active contracts
-  (count + net value + drafts) and a 60-day contract-Fristende reminder list.
+- AI copilot operates the new modules too: catalog and contracts (draft + finalise)
+  are exposed as audited agent tools, so the suite stays drivable from the Chat —
+  not just the UI.
+- Dashboard (Übersicht) extended: active contracts (count + net value + drafts) and a
+  60-day contract-Fristende reminder list.
+- Signed/final copy can be uploaded and stored with every Angebot, Rechnung and
+  Vertrag (inline BLOB, carried by the backup).
 - Bankabgleich (CAMT.053 + MT940): import an ISO-20022 *or* SWIFT MT940 statement
   (auto-detected), auto-match credits to open invoices (by invoice number in the
   Verwendungszweck, else unique amount), record the payments; idempotent re-import.
@@ -61,8 +60,6 @@ touch invoicing. OpenLeads is the one box that does the whole flow on-prem.
   being frozen onto contracts.
 - Angebot → Vertrag: convert an accepted offer into a contract draft (client/value/
   items carried over, linked via document_id) — in the UI and as an AI tool.
-- Customer 360: a per-client overview (linked documents/contracts/recurring + revenue
-  totals invoiced/paid/open) in the Kunden editor, via /api/customers/:id/overview.
 - EÜR / period financial report: in-app income-surplus (revenue − expenses by SKR03
   category) + USt-Zahllast for a date range, in Settings → Steuerberater-Export.
 - Dashboard (Übersicht): live KPIs — open/overdue/paid, 12-month revenue, pipeline

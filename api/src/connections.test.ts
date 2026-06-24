@@ -47,7 +47,7 @@ function fixtureDoc(over: Partial<FullDocument> = {}): FullDocument {
     title: 'Rechnung', intro: null, notes: null, status: 'versendet', issue_date: '2026-06-20', due_date: '2026-07-04',
     small_business: 0, vat_rate: 19, buyer_reference: null, client_type: 'geschaeft', client_vat_id: 'DE123456789',
     include_payment_link: 1, accounting_provider: null, accounting_external_id: null, accounting_pushed_at: null,
-    created_at: '', updated_at: '', items, totals: { net_cents: 110000, vat_cents: 20900, gross_cents: 130900 }, paid_cents: 0,
+    created_at: '', updated_at: '', items, totals: { net_cents: 110000, vat_cents: 20900, gross_cents: 130900 }, paid_cents: 0, has_signed_doc: false,
     ...over,
   }
 }

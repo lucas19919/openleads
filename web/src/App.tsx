@@ -11,7 +11,6 @@ import { SettingsView } from './components/invoices/SettingsView'
 import { DashboardView } from './components/DashboardView'
 import { RecurringView } from './components/invoices/RecurringView'
 import { ContractsView } from './components/contracts/ContractsView'
-import { TimeView } from './components/time/TimeView'
 import { CustomersView } from './components/customers/CustomersView'
 import { BankView } from './components/bank/BankView'
 import { ScraperView } from './components/scraper/ScraperView'
@@ -71,7 +70,6 @@ export default function App() {
       {module === 'scraper' && <ScraperView />}
       {module === 'recurring' && <RecurringView config={config!} />}
       {module === 'contracts' && <ContractsView config={config!} />}
-      {module === 'time' && <TimeView config={config!} />}
       {module === 'mahnungen' && <MahnungenView />}
       {module === 'bank' && <BankView />}
       {module === 'expenses' && <ExpensesView config={config!} />}

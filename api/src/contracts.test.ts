@@ -173,13 +173,13 @@ test('signed document: store, expose has_signed_doc without leaking bytes, fetch
   const updated = setSignedDoc(c.id, { data: bytes, name: 'unterschrieben.pdf', mime: 'application/pdf' })!
   assert.equal(updated.has_signed_doc, true)
   // The public shape must NOT carry the raw bytes.
-  assert.equal((updated as Record<string, unknown>).signed_doc_data, undefined)
+  assert.equal((updated as unknown as Record<string, unknown>).signed_doc_data, undefined)
   assert.equal(updated.signed_doc_name, 'unterschrieben.pdf')
   assert.equal(updated.signed_doc_size, bytes.byteLength)
   // list also reports the flag without shipping bytes.
   const inList = listContracts().find((k) => k.id === c.id)!
   assert.equal(inList.has_signed_doc, true)
-  assert.equal((inList as Record<string, unknown>).signed_doc_data, undefined)
+  assert.equal((inList as unknown as Record<string, unknown>).signed_doc_data, undefined)
 
   // The bytes are retrievable via the dedicated fetch.
   const fetched = getSignedDoc(c.id)!

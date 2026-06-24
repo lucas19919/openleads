@@ -9,7 +9,6 @@ process.env.DB_PATH = DB_FILE
 
 const { db } = await import('./db')
 const { buildDashboard } = await import('./dashboard')
-const { createTimeEntry } = await import('./timetracking')
 const { createContract, finalizeContract, signContract, updateContract } = await import('./contracts')
 
 const TODAY = '2026-06-24'
@@ -27,14 +26,6 @@ after(() => {
       /* ignore */
     }
   }
-})
-
-test('dashboard surfaces unbilled billable time', () => {
-  createTimeEntry({ entry_date: '2026-06-10', description: 'Dev', minutes: 120, rate_cents: 9000, billable: 1 })
-  createTimeEntry({ entry_date: '2026-06-11', description: 'intern', minutes: 60, rate_cents: 9000, billable: 0 })
-  const d = buildDashboard(TODAY)
-  assert.equal(d.time.uninvoiced_count, 1) // only the billable, uninvoiced entry is in the set
-  assert.equal(d.time.uninvoiced_amount_cents, 18000) // 2h × 90€
 })
 
 test('dashboard counts active contracts, their value, and drafts', () => {

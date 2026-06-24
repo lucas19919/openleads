@@ -8,11 +8,9 @@ const DB_FILE = join(tmpdir(), `openleads-customers-${process.pid}.db`)
 process.env.DB_PATH = DB_FILE
 
 const { db } = await import('./db')
-const { createCustomer, getCustomer, updateCustomer, deleteCustomer, listCustomers, customerOverview } = await import('./customers')
-const { createContract, getContract, finalizeContract, signContract } = await import('./contracts')
+const { createCustomer, getCustomer, updateCustomer, deleteCustomer, listCustomers } = await import('./customers')
+const { createContract, getContract } = await import('./contracts')
 const { createRecurring } = await import('./recurring')
-const { getDocument, replaceItems, finalizeDraft } = await import('./documents')
-const { addPayment } = await import('./payments')
 
 after(() => {
   try {
@@ -73,40 +71,4 @@ test('a recurring template created from a customer prefills + links', () => {
   assert.equal(r.customer_id, c.id)
   assert.equal(r.client_name, 'Serie GmbH')
   assert.equal(r.client_email, 's@x.de')
-})
-
-test('customerOverview aggregates documents, contracts and revenue totals', () => {
-  const c = createCustomer({ name: 'Cockpit GmbH' })
-
-  // A finalised invoice for 119,00 € (§19 → gross = net), 50 € paid.
-  const info = db
-    .prepare("INSERT INTO documents (kind, customer_id, small_business, vat_rate, status) VALUES ('rechnung', ?, 1, 19, 'entwurf')")
-    .run(c.id)
-  const docId = Number(info.lastInsertRowid)
-  replaceItems(docId, [{ description: 'Leistung', quantity: 1, unit_price_cents: 11900 }])
-  finalizeDraft(docId)
-  addPayment(docId, { amount_cents: 5000, paid_on: '2026-06-20' })
-
-  // A draft quote (counts as a quote, not invoiced).
-  const q = db.prepare("INSERT INTO documents (kind, customer_id, small_business, status) VALUES ('angebot', ?, 1, 'entwurf')").run(c.id)
-  replaceItems(Number(q.lastInsertRowid), [{ description: 'Angebot', quantity: 1, unit_price_cents: 50000 }])
-
-  // An active contract worth 200 €.
-  const k = createContract({ customer_id: c.id, title: 'Wartung', value_cents: 20000 })
-  finalizeContract(k.id)
-  signContract(k.id, 'Chef', null, '2026-06-20')
-
-  const ov = customerOverview(c.id)!
-  assert.equal(ov.documents.length, 2)
-  assert.equal(ov.totals.invoiced_gross_cents, 11900)
-  assert.equal(ov.totals.paid_cents, 5000)
-  assert.equal(ov.totals.open_cents, 6900)
-  assert.equal(ov.totals.quotes, 1)
-  assert.equal(ov.contracts.length, 1)
-  assert.equal(ov.totals.contracts_active, 1)
-  void getDocument
-})
-
-test('customerOverview returns null for a missing customer', () => {
-  assert.equal(customerOverview(999999), null)
 })

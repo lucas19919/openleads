@@ -37,35 +37,6 @@ test('create_catalog_item + list_catalog round-trip via the agent', async () => 
   assert.ok(list.items.some((i) => i.name === 'Webdesign Stunde'))
 })
 
-test('log_time accepts hours, invoice_time builds a draft and prevents double-billing', async () => {
-  const a = (await runTool('log_time', { description: 'Design', hours: 1.5, rate_cents: 10000 }, ctx)) as {
-    ok: boolean
-    entry: { id: number; minutes: number }
-  }
-  assert.equal(a.ok, true)
-  assert.equal(a.entry.minutes, 90) // 1.5h → 90 min
-  const b = (await runTool('log_time', { description: 'Build', minutes: 60, rate_cents: 10000 }, ctx)) as {
-    entry: { id: number }
-  }
-  const inv = (await runTool('invoice_time', { entry_ids: [a.entry.id, b.entry.id] }, ctx)) as {
-    ok: boolean
-    document: { kind: string; status: string; items: unknown[]; totals: { net_cents: number } }
-  }
-  assert.equal(inv.ok, true)
-  assert.equal(inv.document.kind, 'rechnung')
-  assert.equal(inv.document.status, 'entwurf')
-  assert.equal(inv.document.items.length, 2)
-  assert.equal(inv.document.totals.net_cents, 25000) // 1.5h + 1h × 100€
-  // re-billing the same entries → no eligible entries → error
-  const again = (await runTool('invoice_time', { entry_ids: [a.entry.id, b.entry.id] }, ctx)) as { error?: string }
-  assert.match(again.error ?? '', /abrechenbar/i)
-})
-
-test('log_time rejects a non-positive duration', async () => {
-  const r = (await runTool('log_time', { description: 'x', minutes: 0 }, ctx)) as { error?: string }
-  assert.match(r.error ?? '', /positiv/)
-})
-
 test('create_contract + finalize_contract assigns a number and freezes the AGB', async () => {
   db.prepare('UPDATE settings SET agb_text = ? WHERE id = 1').run('KI-AGB gelten.')
   const made = (await runTool('create_contract', {

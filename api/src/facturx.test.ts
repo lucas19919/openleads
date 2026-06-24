@@ -35,7 +35,7 @@ function invoice(over: Partial<FullDocument> = {}): FullDocument {
     client_type: 'geschaeft', client_vat_id: null, include_payment_link: 1,
     accounting_provider: null, accounting_external_id: null, accounting_pushed_at: null,
     created_at: '', updated_at: '', items,
-    totals: { net_cents: net, vat_cents: vat, gross_cents: net + vat }, paid_cents: 0,
+    totals: { net_cents: net, vat_cents: vat, gross_cents: net + vat }, paid_cents: 0, has_signed_doc: false,
     ...over,
   }
 }

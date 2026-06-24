@@ -4,6 +4,20 @@ A running log of what's landed, so picking the work back up is easy. Newest firs
 
 ## Latest
 
+- **Streamline: cut Zeiterfassung + Customer-360, unify document saving.** Trimmed
+  back toward a focused tool rather than a swiss-army knife. **Removed** the
+  Zeiterfassung module (table, `timetracking.ts`, `/api/time*`, AI time tools,
+  dashboard "unbilled time" KPI, default-hourly-rate setting, tests) and the
+  **Customer-360** overview (`customerOverview` + `/api/customers/:id/overview` +
+  the editor panel) — the **Kunden registry itself stays** (maintain a client once →
+  prefill into documents/contracts). **Unified saving:** the signed/returned-copy
+  upload that contracts had now also lives on **Angebote & Rechnungen**
+  (`documents.signed_doc_*` BLOB, `POST/GET/DELETE /api/documents/:id/signed-document`,
+  a "Gespeichertes Dokument" section in the editor) — so all three things you issue
+  can keep their final/signed copy with the record (in the backup). **164 API tests
+  green**; api + web typecheck clean; web builds (bundle smaller); document-save +
+  removed-routes-404 smoke-tested live.
+
 - **Signed-document upload on contracts.** Answers "where do I put the contract the
   client signed and sent back?" — previously only the *fact* of signing was recorded
   (signed_by/at via "Unterzeichnet"); the returned PDF/scan had no home. Now a

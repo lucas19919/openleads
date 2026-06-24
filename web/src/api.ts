@@ -9,15 +9,12 @@ import type {
   Config,
   Contract,
   Customer,
-  CustomerOverview,
   Dashboard,
   EuerReport,
   Digest,
   ApiKey,
   Doc,
   DocItem,
-  TimeEntry,
-  TimeSummary,
   CalendarEvent,
   DunningComputation,
   Expense,
@@ -176,6 +173,25 @@ export const api = {
   deleteDocument: (id: number) =>
     req<{ ok: true }>(`/documents/${id}`, { method: 'DELETE' }),
   pdfUrl: (id: number) => `/api/documents/${id}/pdf`,
+  signedDocumentUrl: (id: number) => `/api/documents/${id}/signed-document`,
+  uploadSignedDocument: async (id: number, file: File) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    const res = await fetch(`/api/documents/${id}/signed-document`, { method: 'POST', credentials: 'include', body: fd })
+    if (!res.ok) {
+      let msg = res.statusText
+      try {
+        const b = await res.json()
+        if (b?.error) msg = b.error
+      } catch {
+        /* ignore */
+      }
+      throw new ApiError(res.status, msg)
+    }
+    return (await res.json()) as { document: Doc }
+  },
+  deleteSignedDocument: (id: number) =>
+    req<{ document: Doc }>(`/documents/${id}/signed-document`, { method: 'DELETE' }),
   validateDocument: (id: number) =>
     req<{ validation: ValidationResult }>(`/documents/${id}/validate`),
   documentPaymentLink: (id: number) =>
@@ -289,30 +305,10 @@ export const api = {
     req<{ item: CatalogItem }>(`/catalog/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
   deleteCatalogItem: (id: number) => req<{ ok: true }>(`/catalog/${id}`, { method: 'DELETE' }),
 
-  // --- Zeiterfassung (time tracking) ---
-  listTime: (params: { from?: string; to?: string; lead_id?: number; billable?: '0' | '1'; invoiced?: '0' | '1' } = {}) => {
-    const qs = new URLSearchParams()
-    if (params.from) qs.set('from', params.from)
-    if (params.to) qs.set('to', params.to)
-    if (params.lead_id != null) qs.set('lead_id', String(params.lead_id))
-    if (params.billable) qs.set('billable', params.billable)
-    if (params.invoiced) qs.set('invoiced', params.invoiced)
-    const suffix = qs.toString() ? `?${qs}` : ''
-    return req<{ entries: TimeEntry[]; summary: TimeSummary }>(`/time${suffix}`)
-  },
-  createTimeEntry: (body: Partial<TimeEntry>) =>
-    req<{ entry: TimeEntry }>('/time', { method: 'POST', body: JSON.stringify(body) }),
-  updateTimeEntry: (id: number, patch: Partial<TimeEntry>) =>
-    req<{ entry: TimeEntry }>(`/time/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
-  deleteTimeEntry: (id: number) => req<{ ok: true }>(`/time/${id}`, { method: 'DELETE' }),
-  invoiceTime: (entry_ids: number[]) =>
-    req<{ document: Doc }>('/time/invoice', { method: 'POST', body: JSON.stringify({ entry_ids }) }),
-
   // --- Kunden (customers) ---
   listCustomers: (activeOnly = false) =>
     req<{ customers: Customer[] }>(`/customers${activeOnly ? '?active=1' : ''}`),
   getCustomer: (id: number) => req<{ customer: Customer }>(`/customers/${id}`),
-  customerOverview: (id: number) => req<{ overview: CustomerOverview }>(`/customers/${id}/overview`),
   createCustomer: (body: Partial<Customer>) =>
     req<{ customer: Customer }>('/customers', { method: 'POST', body: JSON.stringify(body) }),
   updateCustomer: (id: number, patch: Partial<Customer>) =>

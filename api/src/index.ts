@@ -35,6 +35,9 @@ import {
   getDocument,
   replaceItems,
   finalizeDraft,
+  setDocumentSignedDoc,
+  getDocumentSignedDoc,
+  deleteDocumentSignedDoc,
   type DocItemInput,
 } from './documents'
 import { renderDocumentPdf, pdfFilename } from './pdf'
@@ -61,15 +64,6 @@ import {
   updateCatalogItem,
   deleteCatalogItem,
 } from './catalog'
-import {
-  listTime,
-  timeSummary,
-  getTimeEntry,
-  createTimeEntry,
-  updateTimeEntry,
-  deleteTimeEntry,
-  invoiceTimeEntries,
-} from './timetracking'
 import { previewStatement, applyMatches, listBankTransactions, type ApplyItem } from './bank'
 import {
   listCustomers,
@@ -77,7 +71,6 @@ import {
   createCustomer,
   updateCustomer,
   deleteCustomer,
-  customerOverview,
 } from './customers'
 import { validateInvoice } from './validate'
 import { listOverdue, computeDunning, levelLabel } from './dunning'
@@ -380,8 +373,6 @@ const SETTINGS_FIELDS = new Set([
   'scraper_model',
   // Verträge / AGB
   'agb_text', 'contract_prefix', 'contract_next', 'agb_attach_documents',
-  // Zeiterfassung
-  'default_hourly_rate_cents',
 ])
 
 // Write-only secrets: the client sends the plaintext under the key on the left,
@@ -912,6 +903,43 @@ app.delete('/api/documents/:id', requireAuth, (c) => {
   return c.json({ ok: true })
 })
 
+// Save / replace the signed or final copy of an Angebot/Rechnung (PDF or scan).
+// Same allowed formats + size cap as expense receipts. multipart field name: "file".
+app.post('/api/documents/:id/signed-document', requireAuth, async (c) => {
+  const id = Number(c.req.param('id'))
+  if (!getDocument(id)) return c.json({ error: 'not found' }, 404)
+  const form = await c.req.parseBody()
+  const file = form['file']
+  if (!(file instanceof File)) return c.json({ error: 'Keine Datei hochgeladen.' }, 400)
+  if (file.size > RECEIPT_MAX_BYTES) return c.json({ error: 'Datei zu groß (max. 10 MB).' }, 413)
+  const mime = file.type || 'application/octet-stream'
+  if (!RECEIPT_MIMES.has(mime)) {
+    return c.json({ error: 'Nicht unterstütztes Format — PDF oder Bild (PNG/JPEG/…) erwartet.' }, 415)
+  }
+  const data = new Uint8Array(await file.arrayBuffer())
+  const document = setDocumentSignedDoc(id, { data, name: file.name || `Dokument-${id}`, mime })
+  audit({ actor: c.get('user').username, action: 'document.signed_doc.upload', entity: 'document', entityId: id, detail: { name: file.name, bytes: data.byteLength } })
+  return c.json({ document })
+})
+
+app.get('/api/documents/:id/signed-document', requireAuth, (c) => {
+  const id = Number(c.req.param('id'))
+  const doc = getDocumentSignedDoc(id)
+  if (!doc) return c.json({ error: 'not found' }, 404)
+  c.header('Content-Type', doc.mime)
+  const asciiName = doc.name.replace(/[^\x20-\x7e]/g, '_').replace(/"/g, '')
+  c.header('Content-Disposition', `inline; filename="${asciiName}"; filename*=UTF-8''${encodeURIComponent(doc.name)}`)
+  return c.body(Buffer.from(doc.data) as unknown as ArrayBuffer)
+})
+
+app.delete('/api/documents/:id/signed-document', requireAuth, (c) => {
+  const id = Number(c.req.param('id'))
+  const document = deleteDocumentSignedDoc(id)
+  if (!document) return c.json({ error: 'not found' }, 404)
+  audit({ actor: c.get('user').username, action: 'document.signed_doc.delete', entity: 'document', entityId: id })
+  return c.json({ document })
+})
+
 // --- Verträge (contracts / AGB) -------------------------------------------
 
 app.get('/api/contracts', requireAuth, (c) => c.json({ contracts: listContracts() }))
@@ -1109,62 +1137,6 @@ app.delete('/api/catalog/:id', requireAuth, (c) => {
   return c.json({ ok: true })
 })
 
-// --- Zeiterfassung (time tracking) ----------------------------------------
-
-app.get('/api/time', requireAuth, (c) => {
-  const q = c.req.query()
-  const filter = {
-    from: q.from || undefined,
-    to: q.to || undefined,
-    lead_id: q.lead_id ? Number(q.lead_id) : undefined,
-    billable: q.billable === '1' ? true : q.billable === '0' ? false : undefined,
-    invoiced: q.invoiced === '1' ? true : q.invoiced === '0' ? false : undefined,
-  }
-  return c.json({ entries: listTime(filter), summary: timeSummary(filter) })
-})
-
-app.post('/api/time', requireAuth, async (c) => {
-  const b = (await c.req.json().catch(() => ({}))) as Record<string, unknown>
-  const entry = createTimeEntry(b, c.get('user').username)
-  audit({ actor: c.get('user').username, action: 'time.create', entity: 'time', entityId: entry.id, detail: { minutes: entry.minutes, lead_id: entry.lead_id } })
-  return c.json({ entry }, 201)
-})
-
-app.patch('/api/time/:id', requireAuth, async (c) => {
-  const id = Number(c.req.param('id'))
-  const b = (await c.req.json().catch(() => ({}))) as Record<string, unknown>
-  try {
-    const entry = updateTimeEntry(id, b)
-    if (!entry) return c.json({ error: 'not found' }, 404)
-    return c.json({ entry })
-  } catch (e) {
-    return c.json({ error: (e as Error).message }, 400)
-  }
-})
-
-app.delete('/api/time/:id', requireAuth, (c) => {
-  const id = Number(c.req.param('id'))
-  const r = deleteTimeEntry(id)
-  if (!r.ok && r.reason === 'not found') return c.json({ error: 'not found' }, 404)
-  if (!r.ok && r.reason === 'invoiced') return c.json({ error: 'Abgerechnete Zeiteinträge können nicht gelöscht werden.' }, 400)
-  audit({ actor: c.get('user').username, action: 'time.delete', entity: 'time', entityId: id })
-  return c.json({ ok: true })
-})
-
-// Turn billable, not-yet-invoiced entries into a draft Rechnung (one line each).
-app.post('/api/time/invoice', requireAuth, async (c) => {
-  const b = (await c.req.json().catch(() => ({}))) as { entry_ids?: unknown }
-  const ids = Array.isArray(b.entry_ids) ? (b.entry_ids as unknown[]).map(Number) : []
-  try {
-    const document = invoiceTimeEntries(ids)
-    audit({ actor: c.get('user').username, action: 'time.invoice', entity: 'document', entityId: document.id, detail: { entry_ids: ids, lines: document.items.length } })
-    emit('document.created', { id: document.id, kind: 'rechnung', source: 'time' })
-    return c.json({ document }, 201)
-  } catch (e) {
-    return c.json({ error: (e as Error).message }, 400)
-  }
-})
-
 // --- Bankabgleich (CAMT.053 reconciliation) -------------------------------
 
 const CAMT_MAX_BYTES = 20 * 1024 * 1024 // 20 MB
@@ -1222,13 +1194,6 @@ app.get('/api/customers/:id', requireAuth, (c) => {
   const customer = getCustomer(Number(c.req.param('id')))
   if (!customer) return c.json({ error: 'not found' }, 404)
   return c.json({ customer })
-})
-
-// Per-customer 360: linked documents, contracts, recurring + revenue totals.
-app.get('/api/customers/:id/overview', requireAuth, (c) => {
-  const overview = customerOverview(Number(c.req.param('id')))
-  if (!overview) return c.json({ error: 'not found' }, 404)
-  return c.json({ overview })
 })
 
 app.post('/api/customers', requireAuth, async (c) => {

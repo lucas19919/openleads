@@ -48,11 +48,10 @@ German-capable open models worth trying: `llama3.1:8b`, `qwen2.5:7b-instruct`,
 `search_leads`, `get_lead`, `update_lead`, `move_lead_stage`, `add_note`,
 `analyze_lead`, `draft_outreach`, `pipeline_stats`, `list_documents`,
 `create_document`, `list_expenses`, `create_expense`, `list_catalog`,
-`create_catalog_item`, `list_time`, `log_time`, `invoice_time`, `list_contracts`,
-`create_contract`, `finalize_contract`, `list_customers`, `create_customer`,
-`get_settings`. Each is a small, audited capability over the same database the UI
-uses — so the copilot can run the catalog, log time and turn it into a draft
-invoice, draft/finalise contracts, and manage the customer registry too.
+`create_catalog_item`, `list_contracts`, `create_contract`, `finalize_contract`,
+`contract_from_document`, `list_customers`, `create_customer`, `get_settings`. Each
+is a small, audited capability over the same database the UI uses — so the copilot
+can run the catalog, draft/finalise contracts, and manage the customer registry too.
 `create_document`/`create_contract` accept a `customer_id` to prefill the recipient
 from the customer stamm.
 

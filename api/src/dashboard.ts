@@ -1,7 +1,6 @@
 import { db } from './db'
 import { finalisedInvoices } from './export'
 import { expenseSummary } from './expenses'
-import { timeSummary } from './timetracking'
 
 // Read-only KPIs for the Übersicht (dashboard). Everything is derived from the
 // existing tables — no new state — so it always reflects the live data.
@@ -38,12 +37,6 @@ export interface Dashboard {
     net_total_cents: number
     vat_total_cents: number // total Vorsteuer
     ytd_gross_cents: number // current calendar year
-  }
-  // Unbilled billable time — money earned but not yet on an invoice.
-  time: {
-    uninvoiced_count: number
-    uninvoiced_minutes: number
-    uninvoiced_amount_cents: number
   }
   contracts: {
     active: number
@@ -129,9 +122,6 @@ export function buildDashboard(today: string = new Date().toISOString().slice(0,
   const exAll = expenseSummary()
   const exYtd = expenseSummary({ from: `${today.slice(0, 4)}-01-01`, to: today })
 
-  // --- time (unbilled billable) ---
-  const openTime = timeSummary({ billable: true, invoiced: false })
-
   // --- contracts ---
   const active = Number(
     (db.prepare("SELECT COUNT(*) AS n FROM contracts WHERE status = 'aktiv'").get() as { n: number }).n,
@@ -174,11 +164,6 @@ export function buildDashboard(today: string = new Date().toISOString().slice(0,
       net_total_cents: exAll.net_cents,
       vat_total_cents: exAll.vat_cents,
       ytd_gross_cents: exYtd.gross_cents,
-    },
-    time: {
-      uninvoiced_count: openTime.count,
-      uninvoiced_minutes: openTime.billable_minutes,
-      uninvoiced_amount_cents: openTime.uninvoiced_amount_cents,
     },
     contracts: {
       active,

@@ -2,7 +2,6 @@ import { db, STAGES, PRIORITIES, EXPENSE_CATEGORIES, CONTRACT_TYPES, type LeadRo
 import { getDocument, getSettings, replaceItems, type DocItemInput } from '../documents'
 import { createExpense, listExpenses, expenseSummary } from '../expenses'
 import { listCatalog, createCatalogItem } from '../catalog'
-import { listTime, timeSummary, createTimeEntry, invoiceTimeEntries } from '../timetracking'
 import { listContracts, createContract, finalizeContract, contractFromDocument } from '../contracts'
 import { listCustomers, getCustomer, createCustomer } from '../customers'
 import { insertLead } from '../leads'
@@ -454,83 +453,6 @@ export const TOOLS: AgentTool[] = [
     },
   ),
 
-  // --- Zeiterfassung (time tracking) ---
-  def(
-    'list_time',
-    'Liste Zeiteinträge (optional gefiltert) inkl. Summe. Nutze `only_open: true`, um nur ' +
-      'abrechenbare, noch nicht abgerechnete Einträge zu sehen — daraus lässt sich eine Rechnung bauen.',
-    obj({
-      from: { type: 'string', description: 'ab Datum YYYY-MM-DD' },
-      to: { type: 'string', description: 'bis Datum YYYY-MM-DD' },
-      lead_id: { type: 'number' },
-      only_open: { type: 'boolean', description: 'nur abrechenbare, nicht abgerechnete Einträge' },
-      limit: { type: 'number', description: 'max. Treffer, Standard 30' },
-    }),
-    (a) => {
-      const filter = {
-        from: typeof a.from === 'string' ? a.from : undefined,
-        to: typeof a.to === 'string' ? a.to : undefined,
-        lead_id: a.lead_id != null ? Number(a.lead_id) : undefined,
-        billable: a.only_open ? true : undefined,
-        invoiced: a.only_open ? false : undefined,
-      }
-      const limit = Math.min(Number(a.limit ?? 30) || 30, 100)
-      return { summary: timeSummary(filter), entries: listTime(filter).slice(0, limit) }
-    },
-  ),
-
-  def(
-    'log_time',
-    'Erfasse Arbeitszeit. Dauer entweder als `minutes` (Minuten) ODER `hours` (Stunden, z. B. 1.5). ' +
-      'Stundensatz ist NETTO in Cent. Optional einem Lead zuordnen. Abrechenbare Einträge können ' +
-      'später per `invoice_time` zu einer Rechnung werden.',
-    obj({
-      description: { type: 'string', description: 'Tätigkeit' },
-      minutes: { type: 'number', description: 'Dauer in Minuten' },
-      hours: { type: 'number', description: 'Dauer in Stunden (Alternative zu minutes)' },
-      rate_cents: { type: 'number', description: 'Netto-Stundensatz in Cent' },
-      entry_date: { type: 'string', description: 'YYYY-MM-DD (Standard heute)' },
-      lead_id: { type: 'number' },
-      billable: { type: 'boolean', description: 'Standard true' },
-    }, ['description']),
-    (a, ctx) => {
-      const minutes =
-        a.minutes != null ? Math.round(Number(a.minutes)) : a.hours != null ? Math.round(Number(a.hours) * 60) : 0
-      if (!(minutes > 0)) return { error: 'Dauer (minutes oder hours) muss positiv sein.' }
-      const entry = createTimeEntry(
-        {
-          description: (a.description as string) ?? null,
-          minutes,
-          rate_cents: Number(a.rate_cents ?? 0),
-          entry_date: (a.entry_date as string) ?? null,
-          lead_id: a.lead_id != null ? Number(a.lead_id) : null,
-          billable: a.billable === false ? 0 : 1,
-        },
-        ctx.actor,
-      )
-      audit({ actor: ctx.actor, action: 'ai.log_time', entity: 'time', entityId: entry.id, detail: { minutes, lead_id: entry.lead_id }, ip: ctx.ip })
-      return { ok: true, entry }
-    },
-  ),
-
-  def(
-    'invoice_time',
-    'Erzeuge aus ausgewählten Zeiteinträgen einen Rechnungs-ENTWURF (eine Position je Eintrag, ' +
-      'Stunden × Satz). Nur abrechenbare, noch nicht abgerechnete Einträge zählen; sie werden danach ' +
-      'als abgerechnet markiert (keine Doppelabrechnung). Finalisiert NICHT.',
-    obj({ entry_ids: { type: 'array', items: { type: 'number' }, description: 'IDs der Zeiteinträge' } }, ['entry_ids']),
-    (a, ctx) => {
-      const ids = Array.isArray(a.entry_ids) ? (a.entry_ids as unknown[]).map(Number) : []
-      try {
-        const document = invoiceTimeEntries(ids)
-        audit({ actor: ctx.actor, action: 'ai.time_invoice', entity: 'document', entityId: document.id, detail: { entry_ids: ids, lines: document.items.length }, ip: ctx.ip })
-        return { ok: true, document }
-      } catch (e) {
-        return { error: (e as Error).message }
-      }
-    },
-  ),
-
   // --- Verträge (contracts / AGB) ---
   def(
     'list_contracts',
@@ -675,7 +597,6 @@ export const TOOLS: AgentTool[] = [
       return {
         business_name: s.business_name, owner: s.owner, city: s.city, email: s.email,
         small_business: !!s.small_business, vat_rate: s.vat_rate, payment_terms: s.payment_terms,
-        default_hourly_rate_cents: s.default_hourly_rate_cents ?? 0,
         agb_set: !!(s.agb_text && s.agb_text.trim()),
       }
     },

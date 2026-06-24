@@ -13,11 +13,13 @@ export interface DocTotals {
   gross_cents: number
 }
 
-export interface FullDocument extends DocumentRow {
+export interface FullDocument extends Omit<DocumentRow, 'signed_doc_data'> {
   items: DocumentItemRow[]
   totals: DocTotals
   /** Sum of recorded payments (cents). `gross_cents - paid_cents` = open amount. */
   paid_cents: number
+  /** Whether a signed/returned copy is stored (the bytes never ship in JSON). */
+  has_signed_doc: boolean
 }
 
 export function getSettings(): SettingsRow {
@@ -63,11 +65,13 @@ export function getDocument(id: number): FullDocument | null {
   const paid = db
     .prepare('SELECT COALESCE(SUM(amount_cents), 0) AS p FROM payments WHERE document_id = ?')
     .get(id) as unknown as { p: number }
+  const { signed_doc_data, ...rest } = doc
   return {
-    ...doc,
+    ...rest,
     items,
     totals: computeTotals(items, !!doc.small_business, doc.vat_rate),
     paid_cents: paid.p,
+    has_signed_doc: signed_doc_data != null,
   }
 }
 
@@ -128,4 +132,51 @@ export function finalizeDraft(id: number): FullDocument | null {
     ).run(number, today, kind === 'rechnung' ? due : null, id)
     return getDocument(id)
   })
+}
+
+// --- signed/returned-copy store (the signed Angebot/Rechnung the client returns) -
+
+export interface SignedDocInput {
+  data: Uint8Array
+  name: string
+  mime: string
+}
+
+/** Attach (or replace) the signed/returned scan or PDF on a document. */
+export function setDocumentSignedDoc(id: number, doc: SignedDocInput): FullDocument | null {
+  if (!db.prepare('SELECT id FROM documents WHERE id = ?').get(id)) return null
+  db.prepare(
+    `UPDATE documents
+       SET signed_doc_data = ?, signed_doc_name = ?, signed_doc_mime = ?, signed_doc_size = ?,
+           updated_at = datetime('now')
+     WHERE id = ?`,
+  ).run(doc.data, doc.name, doc.mime, doc.data.byteLength, id)
+  return getDocument(id)
+}
+
+/** Remove the stored signed copy, keeping the document itself. */
+export function deleteDocumentSignedDoc(id: number): FullDocument | null {
+  if (!db.prepare('SELECT id FROM documents WHERE id = ?').get(id)) return null
+  db.prepare(
+    `UPDATE documents
+       SET signed_doc_data = NULL, signed_doc_name = NULL, signed_doc_mime = NULL, signed_doc_size = NULL,
+           updated_at = datetime('now')
+     WHERE id = ?`,
+  ).run(id)
+  return getDocument(id)
+}
+
+/** Fetch the stored signed-copy bytes + metadata for download, or null. */
+export function getDocumentSignedDoc(id: number): { data: Uint8Array; name: string; mime: string } | null {
+  const row = db
+    .prepare('SELECT signed_doc_data, signed_doc_name, signed_doc_mime FROM documents WHERE id = ?')
+    .get(id) as unknown as
+    | { signed_doc_data: Uint8Array | null; signed_doc_name: string | null; signed_doc_mime: string | null }
+    | undefined
+  if (!row || !row.signed_doc_data) return null
+  return {
+    data: row.signed_doc_data,
+    name: row.signed_doc_name || `Dokument-${id}`,
+    mime: row.signed_doc_mime || 'application/octet-stream',
+  }
 }

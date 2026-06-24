@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api } from '../../api'
-import { euro } from '../../money'
-import { fmtDate } from '../../util'
-import type { Customer, CustomerOverview } from '../../types'
+import type { Customer } from '../../types'
 import type { Module } from '../SuiteNav'
 
 const TYPE_LABEL: Record<string, string> = { geschaeft: 'Geschäft (B2B)', privat: 'Privat (B2C)' }
@@ -189,8 +187,6 @@ export function CustomersView({ onNavigate }: { onNavigate: (m: Module) => void 
               <textarea rows={2} value={d.notes ?? ''} onChange={(e) => setD({ notes: e.target.value })} />
             </div>
           </fieldset>
-
-          {d.id && <CustomerOverviewPanel customerId={d.id} onNavigate={onNavigate} />}
         </div>
       </div>
     )
@@ -251,103 +247,5 @@ export function CustomersView({ onNavigate }: { onNavigate: (m: Module) => void 
         )}
       </div>
     </>
-  )
-}
-
-const DOC_KIND_LABEL: Record<string, string> = { rechnung: 'Rechnung', angebot: 'Angebot' }
-
-// Per-customer 360: revenue totals + linked documents/contracts/recurring, with
-// jump-through to the relevant module. Read-only; loads on mount.
-function CustomerOverviewPanel({ customerId, onNavigate }: { customerId: number; onNavigate: (m: Module) => void }) {
-  const [ov, setOv] = useState<CustomerOverview | null>(null)
-  useEffect(() => {
-    let alive = true
-    api.customerOverview(customerId).then(({ overview }) => alive && setOv(overview)).catch(() => {})
-    return () => {
-      alive = false
-    }
-  }, [customerId])
-
-  if (!ov) return null
-  const empty = ov.documents.length === 0 && ov.contracts.length === 0 && ov.recurring.length === 0
-  return (
-    <fieldset className="doc-block">
-      <legend>Übersicht für diesen Kunden</legend>
-      <div className="dash-cards" style={{ marginBottom: 12 }}>
-        <div className="dash-card">
-          <span className="dash-card-label">Berechnet</span>
-          <span className="dash-card-value">{euro(ov.totals.invoiced_gross_cents)}</span>
-          <span className="dash-card-sub">davon {euro(ov.totals.paid_cents)} bezahlt</span>
-        </div>
-        <div className="dash-card">
-          <span className="dash-card-label">Offen</span>
-          <span className="dash-card-value" style={{ color: ov.totals.open_cents ? 'var(--danger)' : 'var(--text)' }}>{euro(ov.totals.open_cents)}</span>
-          <span className="dash-card-sub">{ov.totals.quotes} Angebot(e)</span>
-        </div>
-        <div className="dash-card">
-          <span className="dash-card-label">Aktive Verträge</span>
-          <span className="dash-card-value">{ov.totals.contracts_active}</span>
-          <span className="dash-card-sub">{ov.contracts.length} insgesamt</span>
-        </div>
-      </div>
-
-      {empty && <div className="center-muted">Noch keine Belege für diesen Kunden.</div>}
-
-      {ov.documents.length > 0 && (
-        <div className="table-wrap" style={{ marginBottom: 10 }}>
-          <table className="items-table">
-            <thead><tr><th>Beleg</th><th>Status</th><th className="num">Brutto</th><th className="num">Offen</th><th /></tr></thead>
-            <tbody>
-              {ov.documents.map((d) => (
-                <tr key={d.id}>
-                  <td data-label="Beleg" className="cell-primary">{DOC_KIND_LABEL[d.kind] ?? d.kind} {d.number ?? '(Entwurf)'}</td>
-                  <td data-label="Status"><span className={`doc-status doc-status-${d.status}`}>{d.status}</span></td>
-                  <td data-label="Brutto" className="num">{euro(d.gross_cents)}</td>
-                  <td data-label="Offen" className="num">{d.open_cents ? euro(d.open_cents) : '—'}</td>
-                  <td data-label=""><button className="ghost" onClick={() => onNavigate('documents')}>öffnen</button></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {ov.contracts.length > 0 && (
-        <div className="table-wrap" style={{ marginBottom: 10 }}>
-          <table className="items-table">
-            <thead><tr><th>Vertrag</th><th>Status</th><th className="num">Wert</th><th>Ende</th><th /></tr></thead>
-            <tbody>
-              {ov.contracts.map((k) => (
-                <tr key={k.id}>
-                  <td data-label="Vertrag" className="cell-primary">{k.number ?? '(Entwurf)'}</td>
-                  <td data-label="Status"><span className={`doc-status doc-status-${k.status}`}>{k.status}</span></td>
-                  <td data-label="Wert" className="num">{euro(k.value_cents)}</td>
-                  <td data-label="Ende">{k.end_date ? fmtDate(k.end_date) : '—'}</td>
-                  <td data-label=""><button className="ghost" onClick={() => onNavigate('contracts')}>öffnen</button></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {ov.recurring.length > 0 && (
-        <div className="table-wrap">
-          <table className="items-table">
-            <thead><tr><th>Serie</th><th>Turnus</th><th>Nächster Lauf</th><th /></tr></thead>
-            <tbody>
-              {ov.recurring.map((r) => (
-                <tr key={r.id}>
-                  <td data-label="Serie" className="cell-primary">{r.title ?? '—'}{r.active ? '' : ' (pausiert)'}</td>
-                  <td data-label="Turnus">{r.cadence}</td>
-                  <td data-label="Nächster Lauf">{fmtDate(r.next_run)}</td>
-                  <td data-label=""><button className="ghost" onClick={() => onNavigate('recurring')}>öffnen</button></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </fieldset>
   )
 }

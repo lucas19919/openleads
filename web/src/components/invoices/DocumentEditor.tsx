@@ -315,6 +315,34 @@ export function DocumentEditor({
     }
   }
 
+  // Save / remove the signed or final copy of this document (PDF or scan).
+  async function uploadSignedDoc(file: File) {
+    setBusy(true)
+    setActionMsg(null)
+    try {
+      const { document } = await api.uploadSignedDocument(id, file)
+      setDoc(document)
+      onChanged()
+    } catch (e) {
+      setActionMsg((e as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+  async function removeSignedDoc() {
+    if (!confirm('Gespeichertes Dokument entfernen?')) return
+    setBusy(true)
+    try {
+      const { document } = await api.deleteSignedDocument(id)
+      setDoc(document)
+      onChanged()
+    } catch (e) {
+      setActionMsg((e as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <div className="doc-editor">
       <div className="doc-editor-head">
@@ -731,6 +759,36 @@ export function DocumentEditor({
         <label>Fußnote / Hinweise</label>
         <textarea rows={2} value={doc.notes ?? ''} disabled={locked} onChange={(e) => field('notes', e.target.value)} />
       </div>
+
+      <fieldset className="doc-block">
+        <legend>Gespeichertes Dokument</legend>
+        {doc.has_signed_doc ? (
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+            <a href={api.signedDocumentUrl(id)} target="_blank" rel="noreferrer">
+              {doc.signed_doc_name ?? 'Dokument anzeigen'}
+            </a>
+            {doc.signed_doc_size ? <span className="muted" style={{ fontSize: 12 }}>{Math.round(doc.signed_doc_size / 1024)} KB</span> : null}
+            <button className="ghost danger-text" onClick={removeSignedDoc} disabled={busy}>Entfernen</button>
+          </div>
+        ) : (
+          <div className="field">
+            <label>Unterschriebenes / abgelegtes PDF oder Scan hochladen</label>
+            <input
+              type="file"
+              accept=".pdf,application/pdf,image/png,image/jpeg,image/webp,image/heic,image/heif,image/tiff"
+              disabled={busy}
+              onChange={(e) => {
+                const f = e.target.files?.[0]
+                if (f) uploadSignedDoc(f)
+                e.currentTarget.value = ''
+              }}
+            />
+            <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+              Lege das unterschriebene oder finale Exemplar zu diesem {isAngebot ? 'Angebot' : 'Beleg'} ab (im Backup enthalten).
+            </div>
+          </div>
+        )}
+      </fieldset>
     </div>
   )
 }

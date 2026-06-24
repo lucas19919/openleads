@@ -109,8 +109,6 @@ export interface Settings {
   contract_prefix?: string
   contract_next?: number
   agb_attach_documents?: number
-  // Zeiterfassung
-  default_hourly_rate_cents?: number
 }
 
 export interface ScraperConfig {
@@ -207,6 +205,9 @@ export interface Doc {
   items: DocItem[]
   totals: DocTotals
   paid_cents: number
+  has_signed_doc?: boolean
+  signed_doc_name?: string | null
+  signed_doc_size?: number | null
 }
 
 export interface Payment {
@@ -296,48 +297,6 @@ export interface EuerReport {
   small_business: boolean
 }
 
-export interface CustomerDocLine {
-  id: number
-  kind: string
-  number: string | null
-  status: string
-  issue_date: string | null
-  gross_cents: number
-  paid_cents: number
-  open_cents: number
-}
-
-export interface CustomerContractLine {
-  id: number
-  number: string | null
-  type: string
-  status: string
-  value_cents: number
-  end_date: string | null
-}
-
-export interface CustomerRecurringLine {
-  id: number
-  title: string | null
-  cadence: string
-  next_run: string
-  active: number
-}
-
-export interface CustomerOverview {
-  customer: Customer
-  documents: CustomerDocLine[]
-  contracts: CustomerContractLine[]
-  recurring: CustomerRecurringLine[]
-  totals: {
-    invoiced_gross_cents: number
-    paid_cents: number
-    open_cents: number
-    quotes: number
-    contracts_active: number
-  }
-}
-
 export interface CatalogItem {
   id: number
   name: string
@@ -352,31 +311,6 @@ export interface CatalogItem {
   notes: string | null
   created_at: string
   updated_at: string
-}
-
-export interface TimeEntry {
-  id: number
-  lead_id: number | null
-  catalog_item_id: number | null
-  document_id: number | null
-  entry_date: string
-  description: string | null
-  minutes: number
-  rate_cents: number
-  billable: number
-  invoiced_at: string | null
-  created_by: string | null
-  created_at: string
-  updated_at: string
-  amount_cents: number
-}
-
-export interface TimeSummary {
-  count: number
-  minutes: number
-  billable_minutes: number
-  amount_cents: number
-  uninvoiced_amount_cents: number
 }
 
 export interface ContractTotals {
@@ -502,11 +436,6 @@ export interface Dashboard {
     net_total_cents: number
     vat_total_cents: number
     ytd_gross_cents: number
-  }
-  time: {
-    uninvoiced_count: number
-    uninvoiced_minutes: number
-    uninvoiced_amount_cents: number
   }
   contracts: {
     active: number

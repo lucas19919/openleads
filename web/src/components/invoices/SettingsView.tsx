@@ -199,27 +199,14 @@ export function SettingsView({ user, config }: { user: User; config: Config }) {
                 />
               </div>
             </div>
-            <div className="row2">
-              <div className="field">
-                <label>Verzugszins-Basiszinssatz (%)</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={s.verzug_base_rate ?? ''}
-                  onChange={(e) => set('verzug_base_rate', Number(e.target.value))}
-                />
-              </div>
-              <div className="field">
-                <label>Standard-Stundensatz netto (€)</label>
-                <input
-                  defaultValue={centsToInput(s.default_hourly_rate_cents ?? 0)}
-                  placeholder="z. B. 95,00"
-                  onBlur={(e) => set('default_hourly_rate_cents', inputToCents(e.target.value))}
-                />
-                <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
-                  Vorausgefüllt in der Zeiterfassung.
-                </div>
-              </div>
+            <div className="field">
+              <label>Verzugszins-Basiszinssatz (%)</label>
+              <input
+                type="number"
+                step="0.01"
+                value={s.verzug_base_rate ?? ''}
+                onChange={(e) => set('verzug_base_rate', Number(e.target.value))}
+              />
             </div>
             <div className="row3">
               <div className="field">

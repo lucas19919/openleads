@@ -5,7 +5,6 @@ import { fmtDate } from '../util'
 import type { Config, Dashboard } from '../types'
 import type { Module } from './SuiteNav'
 
-const HOURS = (min: number) => (min / 60).toLocaleString('de-DE', { maximumFractionDigits: 1 })
 
 const MONTH_LABEL = (m: string) => {
   const [y, mm] = m.split('-')
@@ -104,16 +103,6 @@ export function DashboardView({
             <span className="dash-card-label">Entwürfe</span>
             <span className="dash-card-value">{data.invoices.drafts}</span>
             <span className="dash-card-sub">offene Rechnungsentwürfe</span>
-          </button>
-
-          <button className="dash-card dash-clickable" onClick={() => onNavigate('time')}>
-            <span className="dash-card-label">Nicht abgerechnet</span>
-            <span className="dash-card-value" style={{ color: data.time.uninvoiced_amount_cents ? 'var(--accent-dark)' : 'var(--text)' }}>
-              {euro(data.time.uninvoiced_amount_cents)}
-            </span>
-            <span className="dash-card-sub">
-              {HOURS(data.time.uninvoiced_minutes)} h offen · {data.time.uninvoiced_count} Einträge
-            </span>
           </button>
 
           <button className="dash-card dash-clickable" onClick={() => onNavigate('contracts')}>
