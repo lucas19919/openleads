@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { api } from '../../api'
 import { euro, centsToInput, inputToCents, lineTotalCents } from '../../money'
 import { fmtDate, todayISO } from '../../util'
+import { CatalogPicker, catalogItemToLine } from './CatalogPicker'
 import type { Config, DocItem, RecurringInvoice } from '../../types'
 
 const CADENCE_LABEL: Record<string, string> = {
@@ -230,7 +231,18 @@ export function RecurringView({ config }: { config: Config }) {
                 </tbody>
               </table>
             </div>
-            <button onClick={() => setD({ itemList: [...d.itemList, { ...EMPTY_ITEM }] })} style={{ marginTop: 8 }}>+ Position</button>
+            <div style={{ marginTop: 8, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <button onClick={() => setD({ itemList: [...d.itemList, { ...EMPTY_ITEM }] })}>+ Position</button>
+              <CatalogPicker
+                onPick={(it) => {
+                  const line = catalogItemToLine(it)
+                  const arr = d.itemList
+                  const onlyEmptyStarter =
+                    arr.length === 1 && !(arr[0].description ?? '').trim() && arr[0].unit_price_cents === 0
+                  setD({ itemList: onlyEmptyStarter ? [line] : [...arr, line] })
+                }}
+              />
+            </div>
           </fieldset>
 
           <div className="doc-grid">

@@ -2,7 +2,8 @@ import { useCallback, useEffect, useState } from 'react'
 import { api } from '../../api'
 import { euro, centsToInput, inputToCents, lineTotalCents } from '../../money'
 import { fmtDate, todayISO } from '../../util'
-import type { Config, Doc, DocItem, Payment, ValidationResult } from '../../types'
+import { CatalogPicker, catalogItemToLine } from './CatalogPicker'
+import type { CatalogItem, Config, Doc, DocItem, Payment, ValidationResult } from '../../types'
 
 const EMPTY_ITEM: DocItem = { description: '', quantity: 1, unit: 'Pauschal', unit_price_cents: 0 }
 const CLIENT_TYPE_LABEL: Record<string, string> = { geschaeft: 'Geschäft (B2B)', privat: 'Privat (B2C)' }
@@ -83,6 +84,16 @@ export function DocumentEditor({
     setItems((arr) => [...arr, { ...EMPTY_ITEM }])
     setDirty(true)
   }
+  function addCatalogLine(it: CatalogItem) {
+    setItems((arr) => {
+      const line = catalogItemToLine(it)
+      // Replace a single empty starter row instead of leaving it dangling.
+      const onlyEmptyStarter =
+        arr.length === 1 && !(arr[0].description ?? '').trim() && arr[0].unit_price_cents === 0
+      return onlyEmptyStarter ? [line] : [...arr, line]
+    })
+    setDirty(true)
+  }
   function removeItem(i: number) {
     setItems((arr) => arr.filter((_, j) => j !== i))
     setDirty(true)
@@ -142,6 +153,12 @@ export function DocumentEditor({
     const { document } = await api.convertDocument(id)
     onChanged()
     alert(`Rechnung als Entwurf erstellt (${document.title ?? 'Rechnung'}). Du findest sie in der Liste.`)
+  }
+
+  async function toContract() {
+    if (dirty && !locked) await save()
+    const { contract } = await api.documentToContract(id)
+    alert(`Vertragsentwurf erstellt (${contract.title ?? 'Vertrag'}). Du findest ihn unter „Verträge".`)
   }
 
   async function changeStatus(status: string) {
@@ -323,6 +340,11 @@ export function DocumentEditor({
         {isAngebot && (
           <button onClick={convert} title="In eine Rechnung umwandeln">
             In Rechnung umwandeln
+          </button>
+        )}
+        {isAngebot && (
+          <button onClick={toContract} title="In einen Vertrag umwandeln (Entwurf)">
+            In Vertrag umwandeln
           </button>
         )}
         {doc.kind === 'rechnung' && (
@@ -595,9 +617,10 @@ export function DocumentEditor({
         </table>
         </div>
         {!locked && (
-          <button onClick={addItem} style={{ marginTop: 8 }}>
-            + Position
-          </button>
+          <div style={{ marginTop: 8, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <button onClick={addItem}>+ Position</button>
+            <CatalogPicker onPick={addCatalogLine} />
+          </div>
         )}
       </fieldset>
 

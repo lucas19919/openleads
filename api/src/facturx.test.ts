@@ -27,7 +27,7 @@ function invoice(over: Partial<FullDocument> = {}): FullDocument {
   const net = items.reduce((s, it) => s + Math.round(it.quantity * it.unit_price_cents), 0)
   const vat = small ? 0 : Math.round((net * (over.vat_rate ?? 19)) / 100)
   return {
-    id: 1, kind: 'rechnung', number: 'RE-2026-0001', lead_id: null,
+    id: 1, kind: 'rechnung', number: 'RE-2026-0001', lead_id: null, customer_id: null,
     client_name: 'Maler Müller', client_address: 'Dorfstr. 2', client_zip: '85435',
     client_city: 'Erding', client_email: null, title: 'Rechnung', intro: null, notes: null,
     status: 'versendet', issue_date: '2026-06-19', due_date: '2026-07-03',

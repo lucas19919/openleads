@@ -2,12 +2,22 @@ import type {
   AiStatus,
   AiThread,
   ChatResponse,
+  BankApplyItem,
+  BankApplyResult,
+  BankPreview,
+  CatalogItem,
   Config,
+  Contract,
+  Customer,
+  CustomerOverview,
   Dashboard,
+  EuerReport,
   Digest,
   ApiKey,
   Doc,
   DocItem,
+  TimeEntry,
+  TimeSummary,
   CalendarEvent,
   DunningComputation,
   Expense,
@@ -145,6 +155,7 @@ export const api = {
   createDocument: (body: {
     kind: string
     lead_id?: number | null
+    customer_id?: number | null
     client_name?: string | null
     client_city?: string | null
     client_email?: string | null
@@ -160,6 +171,8 @@ export const api = {
     req<{ document: Doc }>(`/documents/${id}/finalize`, { method: 'POST' }),
   convertDocument: (id: number) =>
     req<{ document: Doc }>(`/documents/${id}/convert`, { method: 'POST' }),
+  documentToContract: (id: number) =>
+    req<{ contract: Contract }>(`/documents/${id}/to-contract`, { method: 'POST' }),
   deleteDocument: (id: number) =>
     req<{ ok: true }>(`/documents/${id}`, { method: 'DELETE' }),
   pdfUrl: (id: number) => `/api/documents/${id}/pdf`,
@@ -267,8 +280,91 @@ export const api = {
   runDueRecurring: () =>
     req<{ generated: number; document_ids: number[] }>('/recurring/run-due', { method: 'POST' }),
 
+  // --- Leistungskatalog (reusable services/products) ---
+  listCatalog: (activeOnly = false) =>
+    req<{ items: CatalogItem[] }>(`/catalog${activeOnly ? '?active=1' : ''}`),
+  createCatalogItem: (body: Partial<CatalogItem>) =>
+    req<{ item: CatalogItem }>('/catalog', { method: 'POST', body: JSON.stringify(body) }),
+  updateCatalogItem: (id: number, patch: Partial<CatalogItem>) =>
+    req<{ item: CatalogItem }>(`/catalog/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+  deleteCatalogItem: (id: number) => req<{ ok: true }>(`/catalog/${id}`, { method: 'DELETE' }),
+
+  // --- Zeiterfassung (time tracking) ---
+  listTime: (params: { from?: string; to?: string; lead_id?: number; billable?: '0' | '1'; invoiced?: '0' | '1' } = {}) => {
+    const qs = new URLSearchParams()
+    if (params.from) qs.set('from', params.from)
+    if (params.to) qs.set('to', params.to)
+    if (params.lead_id != null) qs.set('lead_id', String(params.lead_id))
+    if (params.billable) qs.set('billable', params.billable)
+    if (params.invoiced) qs.set('invoiced', params.invoiced)
+    const suffix = qs.toString() ? `?${qs}` : ''
+    return req<{ entries: TimeEntry[]; summary: TimeSummary }>(`/time${suffix}`)
+  },
+  createTimeEntry: (body: Partial<TimeEntry>) =>
+    req<{ entry: TimeEntry }>('/time', { method: 'POST', body: JSON.stringify(body) }),
+  updateTimeEntry: (id: number, patch: Partial<TimeEntry>) =>
+    req<{ entry: TimeEntry }>(`/time/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+  deleteTimeEntry: (id: number) => req<{ ok: true }>(`/time/${id}`, { method: 'DELETE' }),
+  invoiceTime: (entry_ids: number[]) =>
+    req<{ document: Doc }>('/time/invoice', { method: 'POST', body: JSON.stringify({ entry_ids }) }),
+
+  // --- Kunden (customers) ---
+  listCustomers: (activeOnly = false) =>
+    req<{ customers: Customer[] }>(`/customers${activeOnly ? '?active=1' : ''}`),
+  getCustomer: (id: number) => req<{ customer: Customer }>(`/customers/${id}`),
+  customerOverview: (id: number) => req<{ overview: CustomerOverview }>(`/customers/${id}/overview`),
+  createCustomer: (body: Partial<Customer>) =>
+    req<{ customer: Customer }>('/customers', { method: 'POST', body: JSON.stringify(body) }),
+  updateCustomer: (id: number, patch: Partial<Customer>) =>
+    req<{ customer: Customer }>(`/customers/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+  deleteCustomer: (id: number) => req<{ ok: true }>(`/customers/${id}`, { method: 'DELETE' }),
+
+  // --- Bankabgleich (CAMT.053) ---
+  bankPreview: async (file: File) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    const res = await fetch('/api/bank/preview', { method: 'POST', credentials: 'include', body: fd })
+    if (!res.ok) {
+      let msg = res.statusText
+      try {
+        const b = await res.json()
+        if (b?.error) msg = b.error
+      } catch {
+        /* ignore */
+      }
+      throw new ApiError(res.status, msg)
+    }
+    return (await res.json()) as { preview: BankPreview }
+  },
+  bankApply: (items: BankApplyItem[]) =>
+    req<{ result: BankApplyResult }>('/bank/apply', { method: 'POST', body: JSON.stringify({ items }) }),
+
+  // --- Verträge (contracts / AGB) ---
+  listContracts: () => req<{ contracts: Contract[] }>('/contracts'),
+  getContract: (id: number) => req<{ contract: Contract }>(`/contracts/${id}`),
+  createContract: (body: Partial<Contract>) =>
+    req<{ contract: Contract }>('/contracts', { method: 'POST', body: JSON.stringify(body) }),
+  updateContract: (id: number, patch: Partial<Contract>) =>
+    req<{ contract: Contract }>(`/contracts/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+  finalizeContract: (id: number) =>
+    req<{ contract: Contract }>(`/contracts/${id}/finalize`, { method: 'POST' }),
+  signContract: (id: number, body: { signed_by?: string; signed_at?: string; note?: string }) =>
+    req<{ contract: Contract }>(`/contracts/${id}/sign`, { method: 'POST', body: JSON.stringify(body) }),
+  sendContract: (id: number) =>
+    req<{ ok: true; messageId: string; to: string }>(`/contracts/${id}/send`, { method: 'POST' }),
+  deleteContract: (id: number) => req<{ ok: true }>(`/contracts/${id}`, { method: 'DELETE' }),
+  contractPdfUrl: (id: number) => `/api/contracts/${id}/pdf`,
+
   // --- dashboard ---
   dashboard: () => req<{ dashboard: Dashboard }>('/dashboard'),
+
+  // --- EÜR / financial report ---
+  euerReport: (from?: string, to?: string) => {
+    const qs = new URLSearchParams()
+    if (from) qs.set('from', from)
+    if (to) qs.set('to', to)
+    return req<{ report: EuerReport }>(`/report/euer${qs.toString() ? `?${qs}` : ''}`)
+  },
 
   // --- users (multi-user) ---
   listUsers: () => req<{ users: PublicUser[] }>('/users'),

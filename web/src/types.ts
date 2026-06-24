@@ -39,6 +39,11 @@ export interface ExpenseCategoryDef {
   skr03: string
 }
 
+export interface ContractTypeDef {
+  id: string
+  label: string
+}
+
 export interface Config {
   stages: string[]
   priorities: string[]
@@ -49,6 +54,8 @@ export interface Config {
   cadences: string[]
   expenseCategories: ExpenseCategoryDef[]
   paymentMethods: string[]
+  contractTypes: ContractTypeDef[]
+  contractStatuses: string[]
 }
 
 export interface Settings {
@@ -97,6 +104,13 @@ export interface Settings {
   smtp_pass_set?: boolean
   scraper_ai_api_key_set?: boolean
   settings_key_configured?: boolean
+  // Verträge / AGB
+  agb_text?: string | null
+  contract_prefix?: string
+  contract_next?: number
+  agb_attach_documents?: number
+  // Zeiterfassung
+  default_hourly_rate_cents?: number
 }
 
 export interface ScraperConfig {
@@ -167,6 +181,7 @@ export interface Doc {
   kind: string
   number: string | null
   lead_id: number | null
+  customer_id?: number | null
   client_name: string | null
   client_address: string | null
   client_zip: string | null
@@ -220,6 +235,7 @@ export interface RecurringInvoice {
   client_email: string | null
   client_type: string
   lead_id: number | null
+  customer_id?: number | null
   title: string | null
   intro: string | null
   notes: string | null
@@ -233,6 +249,176 @@ export interface RecurringInvoice {
   last_run: string | null
   created_at: string
   updated_at: string
+}
+
+export interface Customer {
+  id: number
+  name: string
+  contact_name: string | null
+  address: string | null
+  zip: string | null
+  city: string | null
+  email: string | null
+  phone: string | null
+  vat_id: string | null
+  client_type: string
+  payment_terms: number | null
+  lead_id: number | null
+  notes: string | null
+  active: number
+  created_at: string
+  updated_at: string
+}
+
+export interface EuerCategoryLine {
+  category: string
+  label: string
+  skr03: string
+  count: number
+  net_cents: number
+  vat_cents: number
+  gross_cents: number
+}
+
+export interface EuerReport {
+  from: string | null
+  to: string | null
+  revenue: { net_cents: number; vat_cents: number; gross_cents: number; count: number }
+  expenses: {
+    net_cents: number
+    vat_cents: number
+    gross_cents: number
+    count: number
+    by_category: EuerCategoryLine[]
+  }
+  result_net_cents: number
+  vat: { collected_cents: number; input_cents: number; payable_cents: number }
+  small_business: boolean
+}
+
+export interface CustomerDocLine {
+  id: number
+  kind: string
+  number: string | null
+  status: string
+  issue_date: string | null
+  gross_cents: number
+  paid_cents: number
+  open_cents: number
+}
+
+export interface CustomerContractLine {
+  id: number
+  number: string | null
+  type: string
+  status: string
+  value_cents: number
+  end_date: string | null
+}
+
+export interface CustomerRecurringLine {
+  id: number
+  title: string | null
+  cadence: string
+  next_run: string
+  active: number
+}
+
+export interface CustomerOverview {
+  customer: Customer
+  documents: CustomerDocLine[]
+  contracts: CustomerContractLine[]
+  recurring: CustomerRecurringLine[]
+  totals: {
+    invoiced_gross_cents: number
+    paid_cents: number
+    open_cents: number
+    quotes: number
+    contracts_active: number
+  }
+}
+
+export interface CatalogItem {
+  id: number
+  name: string
+  description: string | null
+  unit: string | null
+  unit_price_cents: number
+  vat_rate: number
+  sku: string | null
+  category: string | null
+  active: number
+  sort: number
+  notes: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface TimeEntry {
+  id: number
+  lead_id: number | null
+  catalog_item_id: number | null
+  document_id: number | null
+  entry_date: string
+  description: string | null
+  minutes: number
+  rate_cents: number
+  billable: number
+  invoiced_at: string | null
+  created_by: string | null
+  created_at: string
+  updated_at: string
+  amount_cents: number
+}
+
+export interface TimeSummary {
+  count: number
+  minutes: number
+  billable_minutes: number
+  amount_cents: number
+  uninvoiced_amount_cents: number
+}
+
+export interface ContractTotals {
+  net_cents: number
+  vat_cents: number
+  gross_cents: number
+}
+
+export interface Contract {
+  id: number
+  number: string | null
+  type: string
+  lead_id: number | null
+  customer_id?: number | null
+  document_id: number | null
+  client_name: string | null
+  client_address: string | null
+  client_zip: string | null
+  client_city: string | null
+  client_email: string | null
+  client_type: string
+  title: string | null
+  intro: string | null
+  body: string | null
+  agb_text: string | null
+  value_cents: number
+  small_business: number
+  vat_rate: number
+  payment_terms: string | null
+  start_date: string | null
+  end_date: string | null
+  notice_period: string | null
+  status: string
+  issue_date: string | null
+  signed_at: string | null
+  signed_by: string | null
+  signed_note: string | null
+  notes: string | null
+  created_by: string | null
+  created_at: string
+  updated_at: string
+  totals: ContractTotals
 }
 
 export interface Expense {
@@ -313,8 +499,83 @@ export interface Dashboard {
     vat_total_cents: number
     ytd_gross_cents: number
   }
+  time: {
+    uninvoiced_count: number
+    uninvoiced_minutes: number
+    uninvoiced_amount_cents: number
+  }
+  contracts: {
+    active: number
+    drafts: number
+    active_value_cents: number
+    expiring_soon: ExpiringContract[]
+  }
   result: { net_cents: number }
   revenue_by_month: MonthRevenue[]
+}
+
+export interface ExpiringContract {
+  id: number
+  number: string | null
+  title: string | null
+  client_name: string | null
+  end_date: string | null
+  notice_period: string | null
+}
+
+// --- Bankabgleich (CAMT.053) ---
+export interface BankMatchSuggestion {
+  document_id: number
+  number: string | null
+  client_name: string | null
+  outstanding_cents: number
+  reason: 'number' | 'amount'
+  amount_ok: boolean
+}
+
+export interface BankPreviewEntry {
+  ext_ref: string
+  booked_on: string | null
+  amount_cents: number
+  direction: 'credit' | 'debit'
+  remittance: string
+  counterparty: string | null
+  already_seen: boolean
+  suggestion: BankMatchSuggestion | null
+}
+
+export interface BankOpenInvoice {
+  id: number
+  number: string | null
+  client_name: string | null
+  outstanding_cents: number
+}
+
+export interface BankPreview {
+  entries: BankPreviewEntry[]
+  open_invoices: BankOpenInvoice[]
+  total: number
+  credits: number
+  new_count: number
+}
+
+export interface BankApplyItem {
+  ext_ref: string
+  booked_on?: string | null
+  amount_cents: number
+  direction?: string
+  remittance?: string | null
+  counterparty?: string | null
+  document_id?: number | null
+  ignore?: boolean
+}
+
+export interface BankApplyResult {
+  applied: number
+  matched: number
+  ignored: number
+  skipped: number
+  payments: { ext_ref: string; document_id: number; payment_id: number }[]
 }
 
 export interface User {

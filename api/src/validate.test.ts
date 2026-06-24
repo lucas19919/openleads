@@ -23,7 +23,7 @@ function invoice(over: Partial<FullDocument> = {}): FullDocument {
   const small = !!(over.small_business ?? 0)
   const vatRate = over.vat_rate ?? 19
   return {
-    id: 1, kind: 'rechnung', number: 'RE-2026-0001', lead_id: null, client_name: 'Maler Müller',
+    id: 1, kind: 'rechnung', number: 'RE-2026-0001', lead_id: null, customer_id: null, client_name: 'Maler Müller',
     client_address: 'Dorfstr. 2', client_zip: '85435', client_city: 'Erding', client_email: null,
     title: 'Rechnung', intro: null, notes: null, status: 'versendet', issue_date: '2026-06-19',
     due_date: '2026-07-03', small_business: small ? 1 : 0, vat_rate: vatRate, buyer_reference: null,

@@ -252,6 +252,18 @@ export function renderDocumentPdf(doc: FullDocument, s: SettingsRow): Promise<Bu
   ].filter(Boolean) as string[]
   pdf.text(footerParts.join('  ·  '), left, footY, { width, align: 'center' })
 
+  // --- AGB appendix (optional) ---
+  // When enabled, the operator's terms travel with every offer/invoice as a final
+  // page. Uses the embedded fonts, so it's fine under PDF/A-3, and is appended
+  // AFTER the footer/body so the invoice page is untouched. The ZUGFeRD XML (added
+  // below) is unaffected — it's a file attachment, not page content.
+  if (s.agb_attach_documents && s.agb_text && s.agb_text.trim()) {
+    pdf.addPage()
+    pdf.font('Bold').fontSize(13).fillColor(TEXT).text('Allgemeine Geschäftsbedingungen', left, pdf.page.margins.top, { width })
+    pdf.moveDown(0.5)
+    pdf.font('Body').fontSize(9).fillColor(TEXT).text(s.agb_text.trim(), { width, align: 'left' })
+  }
+
   // --- embed the Factur-X/ZUGFeRD XML + declare the hybrid in XMP ---
   if (embedZugferd) {
     const xml = buildFacturXXml(doc, s)

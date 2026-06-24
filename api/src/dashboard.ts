@@ -1,6 +1,7 @@
 import { db } from './db'
 import { finalisedInvoices } from './export'
 import { expenseSummary } from './expenses'
+import { timeSummary } from './timetracking'
 
 // Read-only KPIs for the Übersicht (dashboard). Everything is derived from the
 // existing tables — no new state — so it always reflects the live data.
@@ -38,11 +39,32 @@ export interface Dashboard {
     vat_total_cents: number // total Vorsteuer
     ytd_gross_cents: number // current calendar year
   }
+  // Unbilled billable time — money earned but not yet on an invoice.
+  time: {
+    uninvoiced_count: number
+    uninvoiced_minutes: number
+    uninvoiced_amount_cents: number
+  }
+  contracts: {
+    active: number
+    drafts: number
+    active_value_cents: number // sum of net Auftragswert of active contracts
+    expiring_soon: ExpiringContract[] // active/sent contracts ending within 60 days
+  }
   // Rough operating result: net revenue (issued, not storniert) − net expenses.
   // Net so VAT/Vorsteuer (a pass-through) doesn't distort it; clearly a guideline,
   // not a P&L (no depreciation, accruals, private shares, …).
   result: { net_cents: number }
   revenue_by_month: MonthRevenue[] // last 12 calendar months, oldest first
+}
+
+export interface ExpiringContract {
+  id: number
+  number: string | null
+  title: string | null
+  client_name: string | null
+  end_date: string | null
+  notice_period: string | null
 }
 
 const TERMINAL = new Set(['gewonnen', 'verloren'])
@@ -107,6 +129,33 @@ export function buildDashboard(today: string = new Date().toISOString().slice(0,
   const exAll = expenseSummary()
   const exYtd = expenseSummary({ from: `${today.slice(0, 4)}-01-01`, to: today })
 
+  // --- time (unbilled billable) ---
+  const openTime = timeSummary({ billable: true, invoiced: false })
+
+  // --- contracts ---
+  const active = Number(
+    (db.prepare("SELECT COUNT(*) AS n FROM contracts WHERE status = 'aktiv'").get() as { n: number }).n,
+  )
+  const contractDrafts = Number(
+    (db.prepare("SELECT COUNT(*) AS n FROM contracts WHERE status = 'entwurf'").get() as { n: number }).n,
+  )
+  const activeValue = Number(
+    (db.prepare("SELECT COALESCE(SUM(value_cents), 0) AS v FROM contracts WHERE status = 'aktiv'").get() as { v: number }).v,
+  )
+  // Contracts ending within 60 days (a renewal/notice nudge). Both still-running
+  // statuses count; soonest first.
+  const cutoff = new Date(Date.parse(today) + 60 * 86_400_000).toISOString().slice(0, 10)
+  const expiring = db
+    .prepare(
+      `SELECT id, number, title, client_name, end_date, notice_period
+         FROM contracts
+        WHERE status IN ('aktiv','versendet') AND end_date IS NOT NULL
+          AND end_date >= ? AND end_date <= ?
+        ORDER BY end_date ASC, id ASC
+        LIMIT 8`,
+    )
+    .all(today, cutoff) as unknown as ExpiringContract[]
+
   return {
     leads: { total, open, won, lost, by_stage: byStage, conversion_pct: conversion },
     invoices: {
@@ -125,6 +174,17 @@ export function buildDashboard(today: string = new Date().toISOString().slice(0,
       net_total_cents: exAll.net_cents,
       vat_total_cents: exAll.vat_cents,
       ytd_gross_cents: exYtd.gross_cents,
+    },
+    time: {
+      uninvoiced_count: openTime.count,
+      uninvoiced_minutes: openTime.billable_minutes,
+      uninvoiced_amount_cents: openTime.uninvoiced_amount_cents,
+    },
+    contracts: {
+      active,
+      drafts: contractDrafts,
+      active_value_cents: activeValue,
+      expiring_soon: expiring,
     },
     result: { net_cents: netTotal - exAll.net_cents },
     revenue_by_month: [...months.values()],

@@ -7,10 +7,14 @@ export type Module =
   | 'dashboard'
   | 'copilot'
   | 'leads'
+  | 'customers'
   | 'scraper'
   | 'documents'
   | 'recurring'
+  | 'contracts'
+  | 'time'
   | 'mahnungen'
+  | 'bank'
   | 'expenses'
   | 'integrations'
   | 'settings'
@@ -20,10 +24,14 @@ const TABS: { id: Module; label: string; adminOnly?: boolean }[] = [
   { id: 'dashboard', label: 'Übersicht' },
   { id: 'copilot', label: 'Chat' },
   { id: 'leads', label: 'Leads' },
+  { id: 'customers', label: 'Kunden' },
   { id: 'scraper', label: 'Scraper' },
   { id: 'documents', label: 'Rechnungen' },
   { id: 'recurring', label: 'Serien' },
+  { id: 'contracts', label: 'Verträge' },
+  { id: 'time', label: 'Zeiten' },
   { id: 'mahnungen', label: 'Mahnungen' },
+  { id: 'bank', label: 'Bank' },
   { id: 'expenses', label: 'Ausgaben' },
   { id: 'integrations', label: 'Integrationen', adminOnly: true },
   { id: 'settings', label: 'Einstellungen' },

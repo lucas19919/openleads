@@ -35,6 +35,36 @@ touch invoicing. OpenLeads is the one box that does the whole flow on-prem.
   amount, and the €40 Pauschale is correctly B2B-only (a `client_type` flag).
 - Serienrechnungen (recurring invoices): a template + cadence emits a *draft*
   Rechnung each period (human still finalises); in-process scheduler + manual run.
+- Verträge (contracts) + AGB: Dienst-/Werk-/Wartungsvertrag, Auftragsbestätigung,
+  Rahmenvertrag, AVV; gapless numbering; AGB snapshot frozen at finalise; print-
+  ready multi-page PDF with signature block; e-mail for signature; acceptance
+  record (→ aktiv). Webhook events contract.created/finalized/signed.
+- Leistungskatalog (services/products catalog): reusable line items (price/unit/
+  USt/SKU), copied by value into documents; "+ Aus Katalog" picker in the invoice,
+  quote and recurring editors; managed under Settings.
+- Zeiterfassung (time tracking): billable/non-billable entries against a lead;
+  minutes × net hourly rate; select unbilled entries → one-click draft Rechnung
+  (each entry a line), entries stamped invoiced so they're never double-billed.
+- AI copilot operates the new modules too: catalog, time tracking (log + invoice)
+  and contracts (draft + finalise) are exposed as audited agent tools, so the whole
+  suite stays drivable from the Chat — not just the UI.
+- Dashboard (Übersicht) extended: unbilled billable time (€/hours), active contracts
+  (count + net value + drafts) and a 60-day contract-Fristende reminder list.
+- Bankabgleich (CAMT.053 + MT940): import an ISO-20022 *or* SWIFT MT940 statement
+  (auto-detected), auto-match credits to open invoices (by invoice number in the
+  Verwendungszweck, else unique amount), record the payments; idempotent re-import.
+  Both formats parsed by hand, no new deps.
+- Kunden (customer registry): central client list; documents/contracts/recurring can
+  be created from a customer (prefilled, value-snapshotted, linked via customer_id).
+  Copilot can manage customers and prefill documents from them (customer_id tools).
+- AGB optionally appended to Angebot/Rechnung PDFs (settings toggle), in addition to
+  being frozen onto contracts.
+- Angebot → Vertrag: convert an accepted offer into a contract draft (client/value/
+  items carried over, linked via document_id) — in the UI and as an AI tool.
+- Customer 360: a per-client overview (linked documents/contracts/recurring + revenue
+  totals invoiced/paid/open) in the Kunden editor, via /api/customers/:id/overview.
+- EÜR / period financial report: in-app income-surplus (revenue − expenses by SKR03
+  category) + USt-Zahllast for a date range, in Settings → Steuerberater-Export.
 - Dashboard (Übersicht): live KPIs — open/overdue/paid, 12-month revenue, pipeline
   by stage, conversion.
 - Multi-user: `admin` / `member` roles, in-app user management, lead assignment.
@@ -45,9 +75,10 @@ touch invoicing. OpenLeads is the one box that does the whole flow on-prem.
 
 - Finer-grained permissions (today `member` can do everything except user/—
   settings administration); per-user data scoping if teams need it.
-- Bank-statement reconciliation (CAMT.053 / MT940 import) to auto-match payments,
-  instead of recording them by hand.
-- A contacts/companies split — a lead is still one flat row (one contact each).
+- A full contacts/companies split (multiple contacts per company, company ↔ many
+  deals). A central **Kunden** registry now exists (see Done) and covers the common
+  "maintain a client once, bill them" need additively; this remaining item is the
+  deeper relational model if teams need it.
 - Move the scraper scoring weights + priority cut-offs into Settings (still code
   constants today).
 - Full XRechnung Schematron (BR-DE-*) enforcement, and an XRechnung-only

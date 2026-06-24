@@ -42,7 +42,7 @@ function fixtureDoc(over: Partial<FullDocument> = {}): FullDocument {
     { id: 2, document_id: 1, description: 'Wartung', quantity: 2, unit: 'Monat', unit_price_cents: 5000, sort: 1 },
   ]
   return {
-    id: 1, kind: 'rechnung', number: 'RE-2026-0001', lead_id: null, client_name: 'Maler Müller',
+    id: 1, kind: 'rechnung', number: 'RE-2026-0001', lead_id: null, customer_id: null, client_name: 'Maler Müller',
     client_address: 'Dorfstr. 2', client_zip: '85435', client_city: 'Erding', client_email: 'k@x.de',
     title: 'Rechnung', intro: null, notes: null, status: 'versendet', issue_date: '2026-06-20', due_date: '2026-07-04',
     small_business: 0, vat_rate: 19, buyer_reference: null, client_type: 'geschaeft', client_vat_id: 'DE123456789',

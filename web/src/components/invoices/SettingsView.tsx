@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../../api'
-import type { Config, PublicUser, Settings, User } from '../../types'
+import { euro, centsToInput, inputToCents } from '../../money'
+import type { CatalogItem, Config, EuerReport, PublicUser, Settings, User } from '../../types'
 
 export function SettingsView({ user, config }: { user: User; config: Config }) {
   const [s, setS] = useState<Settings | null>(null)
@@ -9,6 +10,8 @@ export function SettingsView({ user, config }: { user: User; config: Config }) {
   const [error, setError] = useState<string | null>(null)
   const [exportFrom, setExportFrom] = useState('')
   const [exportTo, setExportTo] = useState('')
+  const [euer, setEuer] = useState<EuerReport | null>(null)
+  const [euerBusy, setEuerBusy] = useState(false)
   // Write-only secrets: held locally, sent only when typed, never read back.
   const [aiApiKey, setAiApiKey] = useState('')
   const [smtpPass, setSmtpPass] = useState('')
@@ -196,14 +199,27 @@ export function SettingsView({ user, config }: { user: User; config: Config }) {
                 />
               </div>
             </div>
-            <div className="field">
-              <label>Verzugszins-Basiszinssatz (%)</label>
-              <input
-                type="number"
-                step="0.01"
-                value={s.verzug_base_rate ?? ''}
-                onChange={(e) => set('verzug_base_rate', Number(e.target.value))}
-              />
+            <div className="row2">
+              <div className="field">
+                <label>Verzugszins-Basiszinssatz (%)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={s.verzug_base_rate ?? ''}
+                  onChange={(e) => set('verzug_base_rate', Number(e.target.value))}
+                />
+              </div>
+              <div className="field">
+                <label>Standard-Stundensatz netto (€)</label>
+                <input
+                  defaultValue={centsToInput(s.default_hourly_rate_cents ?? 0)}
+                  placeholder="z. B. 95,00"
+                  onBlur={(e) => set('default_hourly_rate_cents', inputToCents(e.target.value))}
+                />
+                <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+                  Vorausgefüllt in der Zeiterfassung.
+                </div>
+              </div>
             </div>
             <div className="row3">
               <div className="field">
@@ -232,6 +248,48 @@ export function SettingsView({ user, config }: { user: User; config: Config }) {
               </div>
             </div>
           </fieldset>
+
+          <fieldset className="doc-block">
+            <legend>Verträge & AGB</legend>
+            <p className="settings-hint">
+              Deine Allgemeinen Geschäftsbedingungen. Beim Festschreiben eines Vertrags wird dieser Text
+              <strong> eingefroren</strong> und dem Vertrags-PDF angehängt — spätere Änderungen wirken nur auf
+              neue Verträge. Kein Rechtsrat: lass deine AGB im Zweifel anwaltlich prüfen.
+            </p>
+            <div className="field">
+              <label>AGB-Text</label>
+              <textarea
+                rows={10}
+                value={s.agb_text ?? ''}
+                placeholder={'§ 1 Geltungsbereich\n…\n§ 2 Vertragsschluss\n…'}
+                onChange={(e) => set('agb_text', e.target.value)}
+              />
+            </div>
+            <div className="row2">
+              <div className="field">
+                <label>Vertrags-Präfix</label>
+                <input value={s.contract_prefix ?? ''} placeholder="V-" onChange={(e) => set('contract_prefix', e.target.value)} />
+              </div>
+              <div className="field">
+                <label>Nächste Vertrags-Nr.</label>
+                <input
+                  type="number"
+                  value={s.contract_next ?? 1}
+                  onChange={(e) => set('contract_next', Number(e.target.value))}
+                />
+              </div>
+            </div>
+            <label className="check-row" title="Hängt die AGB als letzte Seite an jedes Angebots-/Rechnungs-PDF an.">
+              <input
+                type="checkbox"
+                checked={!!s.agb_attach_documents}
+                onChange={(e) => set('agb_attach_documents', e.target.checked ? 1 : 0)}
+              />
+              AGB an Angebots- und Rechnungs-PDFs anhängen
+            </label>
+          </fieldset>
+
+          <CatalogSettings />
 
           <fieldset className="doc-block">
             <legend>KI-Anbindung</legend>
@@ -395,6 +453,28 @@ export function SettingsView({ user, config }: { user: User; config: Config }) {
                 DATEV-Ausgaben (CSV)
               </a>
             </div>
+
+            <div style={{ marginTop: 14 }}>
+              <button
+                onClick={async () => {
+                  setEuerBusy(true)
+                  try {
+                    const { report } = await api.euerReport(exportFrom || undefined, exportTo || undefined)
+                    setEuer(report)
+                  } finally {
+                    setEuerBusy(false)
+                  }
+                }}
+                disabled={euerBusy}
+              >
+                {euerBusy ? '…' : 'EÜR-Übersicht anzeigen'}
+              </button>
+              <span className="muted" style={{ fontSize: 12, marginLeft: 8 }}>
+                Einnahmen − Ausgaben (netto) + USt-Position für den gewählten Zeitraum. Kein Steuerrat.
+              </span>
+            </div>
+
+            {euer && <EuerSummary report={euer} />}
           </fieldset>
 
           {user.role === 'admin' && <TeamSettings config={config} currentUserId={user.id} />}
@@ -506,6 +586,196 @@ function SecretField({
         </label>
       )}
     </div>
+  )
+}
+
+// EÜR / period financial overview: revenue − expenses (net) and the VAT position
+// (USt eingenommen − Vorsteuer = Zahllast). Read-only; mirrors the CSV exports.
+function EuerSummary({ report: r }: { report: EuerReport }) {
+  const period = r.from || r.to ? `${r.from ?? '…'} – ${r.to ?? '…'}` : 'gesamter Zeitraum'
+  return (
+    <div className="section-info" style={{ marginTop: 14 }}>
+      <strong>EÜR-Übersicht ({period})</strong>
+      <div className="dash-cards" style={{ marginTop: 10 }}>
+        <div className="dash-card">
+          <span className="dash-card-label">Einnahmen (netto)</span>
+          <span className="dash-card-value">{euro(r.revenue.net_cents)}</span>
+          <span className="dash-card-sub">{r.revenue.count} Rechnung(en)</span>
+        </div>
+        <div className="dash-card">
+          <span className="dash-card-label">Ausgaben (netto)</span>
+          <span className="dash-card-value">{euro(r.expenses.net_cents)}</span>
+          <span className="dash-card-sub">{r.expenses.count} Beleg(e)</span>
+        </div>
+        <div className="dash-card">
+          <span className="dash-card-label">Ergebnis (netto)</span>
+          <span className="dash-card-value" style={{ color: r.result_net_cents < 0 ? 'var(--danger)' : 'var(--ok)' }}>
+            {euro(r.result_net_cents)}
+          </span>
+          <span className="dash-card-sub">Einnahmen − Ausgaben</span>
+        </div>
+        {!r.small_business && (
+          <div className="dash-card">
+            <span className="dash-card-label">USt-Zahllast</span>
+            <span className="dash-card-value">{euro(r.vat.payable_cents)}</span>
+            <span className="dash-card-sub">{euro(r.vat.collected_cents)} USt − {euro(r.vat.input_cents)} Vorsteuer</span>
+          </div>
+        )}
+      </div>
+
+      {r.expenses.by_category.length > 0 && (
+        <div className="table-wrap" style={{ marginTop: 10 }}>
+          <table className="items-table">
+            <thead>
+              <tr><th>Kategorie</th><th>SKR03</th><th className="num">Anzahl</th><th className="num">Netto</th><th className="num">Vorsteuer</th></tr>
+            </thead>
+            <tbody>
+              {r.expenses.by_category.map((c) => (
+                <tr key={c.category}>
+                  <td data-label="Kategorie" className="cell-primary">{c.label}</td>
+                  <td data-label="SKR03">{c.skr03 || '—'}</td>
+                  <td data-label="Anzahl" className="num">{c.count}</td>
+                  <td data-label="Netto" className="num">{euro(c.net_cents)}</td>
+                  <td data-label="Vorsteuer" className="num">{euro(c.vat_cents)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// Leistungskatalog: reusable invoice/quote/contract line items with rates. Any
+// signed-in user may manage it (members work invoicing). Items are picked in the
+// document editors via the "+ Aus Katalog" dropdown.
+function CatalogSettings() {
+  const [items, setItems] = useState<CatalogItem[]>([])
+  const [error, setError] = useState<string | null>(null)
+  const [name, setName] = useState('')
+  const [unit, setUnit] = useState('Std')
+  const [price, setPrice] = useState('')
+  const [vat, setVat] = useState(19)
+  const [category, setCategory] = useState('')
+
+  function refresh() {
+    api.listCatalog().then(({ items }) => setItems(items)).catch(() => {})
+  }
+  useEffect(refresh, [])
+
+  async function add() {
+    setError(null)
+    try {
+      await api.createCatalogItem({
+        name: name.trim(),
+        unit: unit || null,
+        unit_price_cents: inputToCents(price),
+        vat_rate: vat,
+        category: category.trim() || null,
+      })
+      setName('')
+      setPrice('')
+      setCategory('')
+      refresh()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Anlegen fehlgeschlagen.')
+    }
+  }
+
+  async function patch(id: number, p: Partial<CatalogItem>) {
+    setError(null)
+    try {
+      await api.updateCatalogItem(id, p)
+      refresh()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Änderung fehlgeschlagen.')
+    }
+  }
+
+  async function remove(it: CatalogItem) {
+    if (!confirm(`Katalogeintrag „${it.name}" löschen? Bereits erstellte Dokumente bleiben unverändert.`)) return
+    await api.deleteCatalogItem(it.id).catch(() => {})
+    refresh()
+  }
+
+  return (
+    <fieldset className="doc-block">
+      <legend>Leistungskatalog</legend>
+      <p className="settings-hint">
+        Wiederverwendbare Positionen (Leistungen/Produkte) mit Preis und Einheit. In den Editoren von Angebot,
+        Rechnung und Serie wählst du sie über <strong>„+ Aus Katalog"</strong>. Positionen werden als Kopie übernommen —
+        spätere Änderungen hier wirken nur auf neue Dokumente.
+      </p>
+      {error && <div className="section-error">{error}</div>}
+      {items.length > 0 && (
+        <div className="table-wrap">
+          <table className="items-table">
+            <thead>
+              <tr>
+                <th>Bezeichnung</th>
+                <th>Einh.</th>
+                <th className="num">Preis (netto)</th>
+                <th className="num">USt %</th>
+                <th>Aktiv</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((it) => (
+                <tr key={it.id}>
+                  <td data-label="Bezeichnung" className="cell-primary">
+                    <input defaultValue={it.name} onBlur={(e) => e.target.value.trim() && e.target.value !== it.name && patch(it.id, { name: e.target.value })} />
+                  </td>
+                  <td data-label="Einheit">
+                    <input defaultValue={it.unit ?? ''} style={{ width: 70 }} onBlur={(e) => e.target.value !== (it.unit ?? '') && patch(it.id, { unit: e.target.value })} />
+                  </td>
+                  <td data-label="Preis (netto)" className="num">
+                    <input defaultValue={centsToInput(it.unit_price_cents)} style={{ width: 90 }} onBlur={(e) => { const c = inputToCents(e.target.value); if (c !== it.unit_price_cents) patch(it.id, { unit_price_cents: c }) }} />
+                  </td>
+                  <td data-label="USt %" className="num">
+                    <input type="number" defaultValue={it.vat_rate} style={{ width: 60 }} onBlur={(e) => Number(e.target.value) !== it.vat_rate && patch(it.id, { vat_rate: Number(e.target.value) })} />
+                  </td>
+                  <td data-label="Aktiv">
+                    <input type="checkbox" checked={!!it.active} onChange={(e) => patch(it.id, { active: e.target.checked ? 1 : 0 })} />
+                  </td>
+                  <td data-label="">
+                    <button className="ghost" onClick={() => remove(it)}>Löschen</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <div className="row3" style={{ marginTop: 10 }}>
+        <div className="field">
+          <label>Bezeichnung</label>
+          <input value={name} placeholder="z. B. Webdesign Stunde" onChange={(e) => setName(e.target.value)} />
+        </div>
+        <div className="field">
+          <label>Einheit</label>
+          <input value={unit} placeholder="Std / Stk / Pauschal" onChange={(e) => setUnit(e.target.value)} />
+        </div>
+        <div className="field">
+          <label>Preis netto (€)</label>
+          <input value={price} placeholder="95,00" onChange={(e) => setPrice(e.target.value)} />
+        </div>
+      </div>
+      <div className="row3">
+        <div className="field">
+          <label>USt-Satz (%)</label>
+          <input type="number" value={vat} onChange={(e) => setVat(Number(e.target.value))} />
+        </div>
+        <div className="field">
+          <label>Kategorie (optional)</label>
+          <input value={category} placeholder="z. B. Webdesign" onChange={(e) => setCategory(e.target.value)} />
+        </div>
+        <div className="field" style={{ alignSelf: 'end' }}>
+          <button className="primary" onClick={add} disabled={!name.trim()}>Position anlegen</button>
+        </div>
+      </div>
+    </fieldset>
   )
 }
 

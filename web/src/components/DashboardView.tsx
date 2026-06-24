@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
 import { euro } from '../money'
+import { fmtDate } from '../util'
 import type { Config, Dashboard } from '../types'
 import type { Module } from './SuiteNav'
+
+const HOURS = (min: number) => (min / 60).toLocaleString('de-DE', { maximumFractionDigits: 1 })
 
 const MONTH_LABEL = (m: string) => {
   const [y, mm] = m.split('-')
@@ -102,7 +105,48 @@ export function DashboardView({
             <span className="dash-card-value">{data.invoices.drafts}</span>
             <span className="dash-card-sub">offene Rechnungsentwürfe</span>
           </button>
+
+          <button className="dash-card dash-clickable" onClick={() => onNavigate('time')}>
+            <span className="dash-card-label">Nicht abgerechnet</span>
+            <span className="dash-card-value" style={{ color: data.time.uninvoiced_amount_cents ? 'var(--accent-dark)' : 'var(--text)' }}>
+              {euro(data.time.uninvoiced_amount_cents)}
+            </span>
+            <span className="dash-card-sub">
+              {HOURS(data.time.uninvoiced_minutes)} h offen · {data.time.uninvoiced_count} Einträge
+            </span>
+          </button>
+
+          <button className="dash-card dash-clickable" onClick={() => onNavigate('contracts')}>
+            <span className="dash-card-label">Aktive Verträge</span>
+            <span className="dash-card-value">{data.contracts.active}</span>
+            <span className="dash-card-sub">
+              {euro(data.contracts.active_value_cents)} Wert · {data.contracts.drafts} Entwürfe
+            </span>
+          </button>
         </div>
+
+        {data.contracts.expiring_soon.length > 0 && (
+          <fieldset className="doc-block">
+            <legend>Verträge mit Fristende (60 Tage)</legend>
+            <div className="table-wrap">
+              <table className="items-table">
+                <thead>
+                  <tr><th>Ende</th><th>Vertrag</th><th>Kunde</th><th>Kündigungsfrist</th></tr>
+                </thead>
+                <tbody>
+                  {data.contracts.expiring_soon.map((c) => (
+                    <tr key={c.id} className="dash-clickable" onClick={() => onNavigate('contracts')}>
+                      <td data-label="Ende">{c.end_date ? fmtDate(c.end_date) : '—'}</td>
+                      <td data-label="Vertrag" className="cell-primary">{c.number ? `${c.number} · ` : ''}{c.title ?? '—'}</td>
+                      <td data-label="Kunde">{c.client_name ?? '—'}</td>
+                      <td data-label="Kündigungsfrist">{c.notice_period ?? '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </fieldset>
+        )}
 
         <div className="dash-row2">
           <fieldset className="doc-block">

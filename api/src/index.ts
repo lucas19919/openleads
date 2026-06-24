@@ -17,6 +17,8 @@ import {
   RECURRING_CADENCES,
   EXPENSE_CATEGORIES,
   PAYMENT_METHODS,
+  CONTRACT_TYPES,
+  CONTRACT_STATUSES,
   type LeadRow,
   type UserRow,
   type DocumentRow,
@@ -37,6 +39,43 @@ import {
 } from './documents'
 import { renderDocumentPdf, pdfFilename } from './pdf'
 import { renderMahnungPdf, mahnungPdfFilename } from './mahnungPdf'
+import {
+  listContracts,
+  getContract,
+  createContract,
+  updateContract,
+  setContractStatus,
+  finalizeContract,
+  signContract,
+  deleteContract,
+  contractFromDocument,
+} from './contracts'
+import { renderContractPdf, contractPdfFilename } from './contractPdf'
+import {
+  listCatalog,
+  getCatalogItem,
+  createCatalogItem,
+  updateCatalogItem,
+  deleteCatalogItem,
+} from './catalog'
+import {
+  listTime,
+  timeSummary,
+  getTimeEntry,
+  createTimeEntry,
+  updateTimeEntry,
+  deleteTimeEntry,
+  invoiceTimeEntries,
+} from './timetracking'
+import { previewStatement, applyMatches, listBankTransactions, type ApplyItem } from './bank'
+import {
+  listCustomers,
+  getCustomer,
+  createCustomer,
+  updateCustomer,
+  deleteCustomer,
+  customerOverview,
+} from './customers'
 import { validateInvoice } from './validate'
 import { listOverdue, computeDunning, levelLabel } from './dunning'
 import { listPayments, addPayment, deletePayment, paidCents } from './payments'
@@ -74,6 +113,7 @@ import {
   leadsCsv,
   exportFilename,
 } from './export'
+import { buildEuer } from './report'
 import { audit } from './audit'
 import { rateLimit } from './ratelimit'
 import { encryptSecret, settingsKeyConfigured } from './secrets'
@@ -180,6 +220,8 @@ app.get('/api/config', (c) =>
     cadences: RECURRING_CADENCES,
     expenseCategories: EXPENSE_CATEGORIES,
     paymentMethods: PAYMENT_METHODS,
+    contractTypes: CONTRACT_TYPES,
+    contractStatuses: CONTRACT_STATUSES,
   }),
 )
 
@@ -333,6 +375,10 @@ const SETTINGS_FIELDS = new Set([
   'ai_base_url', 'ai_model', 'ai_label',
   'smtp_host', 'smtp_port', 'smtp_user', 'smtp_secure', 'smtp_from',
   'scraper_model',
+  // Verträge / AGB
+  'agb_text', 'contract_prefix', 'contract_next', 'agb_attach_documents',
+  // Zeiterfassung
+  'default_hourly_rate_cents',
 ])
 
 // Write-only secrets: the client sends the plaintext under the key on the left,
@@ -440,10 +486,18 @@ app.post('/api/documents', requireAuth, async (c) => {
   if (!DOC_KINDS.includes(kind as never)) return c.json({ error: 'invalid kind' }, 400)
   const s = getSettings()
 
-  let prefillName: string | null = (b.client_name as string) ?? null
-  let prefillCity: string | null = (b.client_city as string) ?? null
-  let prefillEmail: string | null = (b.client_email as string) ?? null
-  const leadId = b.lead_id != null ? Number(b.lead_id) : null
+  // Prefill precedence: explicit body field > linked customer > linked lead.
+  const customerId = b.customer_id != null ? Number(b.customer_id) : null
+  const customer = customerId ? getCustomer(customerId) : null
+  let prefillName: string | null = (b.client_name as string) ?? customer?.name ?? null
+  let prefillAddress: string | null = (b.client_address as string) ?? customer?.address ?? null
+  let prefillZip: string | null = (b.client_zip as string) ?? customer?.zip ?? null
+  let prefillCity: string | null = (b.client_city as string) ?? customer?.city ?? null
+  let prefillEmail: string | null = (b.client_email as string) ?? customer?.email ?? null
+  let prefillVat: string | null = (b.client_vat_id as string) ?? customer?.vat_id ?? null
+  const clientType =
+    (b.client_type as string) ?? customer?.client_type ?? 'geschaeft'
+  const leadId = b.lead_id != null ? Number(b.lead_id) : customer?.lead_id ?? null
   if (leadId) {
     const lead = db.prepare('SELECT * FROM leads WHERE id = ?').get(leadId) as unknown as
       | LeadRow
@@ -458,21 +512,23 @@ app.post('/api/documents', requireAuth, async (c) => {
   const info = db
     .prepare(
       `INSERT INTO documents
-        (kind, lead_id, client_name, client_address, client_zip, client_city,
-         client_email, client_type, title, intro, notes, small_business, vat_rate)
+        (kind, lead_id, customer_id, client_name, client_address, client_zip, client_city,
+         client_email, client_vat_id, client_type, title, intro, notes, small_business, vat_rate)
        VALUES
-        (@kind, @lead_id, @client_name, @client_address, @client_zip, @client_city,
-         @client_email, @client_type, @title, @intro, @notes, @small_business, @vat_rate)`,
+        (@kind, @lead_id, @customer_id, @client_name, @client_address, @client_zip, @client_city,
+         @client_email, @client_vat_id, @client_type, @title, @intro, @notes, @small_business, @vat_rate)`,
     )
     .run({
       kind,
       lead_id: leadId,
+      customer_id: customer?.id ?? null,
       client_name: prefillName,
-      client_address: (b.client_address as string) ?? null,
-      client_zip: (b.client_zip as string) ?? null,
+      client_address: prefillAddress,
+      client_zip: prefillZip,
       client_city: prefillCity,
       client_email: prefillEmail,
-      client_type: b.client_type === 'privat' ? 'privat' : 'geschaeft',
+      client_vat_id: prefillVat,
+      client_type: clientType === 'privat' ? 'privat' : 'geschaeft',
       title: (b.title as string) ?? (kind === 'rechnung' ? 'Rechnung' : 'Angebot'),
       intro: (b.intro as string) ?? null,
       notes: (b.notes as string) ?? null,
@@ -828,6 +884,17 @@ app.post('/api/documents/:id/convert', requireAuth, (c) => {
   return c.json({ document: getDocument(newId) }, 201)
 })
 
+// Turn a document (typically an accepted Angebot) into a draft Vertrag, carrying
+// the client block, customer/lead links, net value and a Leistungsbeschreibung.
+app.post('/api/documents/:id/to-contract', requireAuth, (c) => {
+  const id = Number(c.req.param('id'))
+  const contract = contractFromDocument(id, c.get('user').username)
+  if (!contract) return c.json({ error: 'not found' }, 404)
+  audit({ actor: c.get('user').username, action: 'contract.from_document', entity: 'contract', entityId: contract.id, detail: { document_id: id } })
+  emit('contract.created', { id: contract.id, type: contract.type, from_document: id })
+  return c.json({ contract }, 201)
+})
+
 app.delete('/api/documents/:id', requireAuth, (c) => {
   const id = Number(c.req.param('id'))
   const doc = db.prepare('SELECT * FROM documents WHERE id = ?').get(id) as unknown as
@@ -839,6 +906,316 @@ app.delete('/api/documents/:id', requireAuth, (c) => {
     return c.json({ error: 'Ausgestellte Dokumente können nicht gelöscht werden.' }, 400)
   }
   db.prepare('DELETE FROM documents WHERE id = ?').run(id)
+  return c.json({ ok: true })
+})
+
+// --- Verträge (contracts / AGB) -------------------------------------------
+
+app.get('/api/contracts', requireAuth, (c) => c.json({ contracts: listContracts() }))
+
+app.get('/api/contracts/:id', requireAuth, (c) => {
+  const contract = getContract(Number(c.req.param('id')))
+  if (!contract) return c.json({ error: 'not found' }, 404)
+  return c.json({ contract })
+})
+
+app.post('/api/contracts', requireAuth, async (c) => {
+  const b = (await c.req.json().catch(() => ({}))) as Record<string, unknown>
+  const contract = createContract(b, c.get('user').username)
+  audit({ actor: c.get('user').username, action: 'contract.create', entity: 'contract', entityId: contract.id, detail: { type: contract.type, client_name: contract.client_name } })
+  emit('contract.created', { id: contract.id, type: contract.type })
+  return c.json({ contract }, 201)
+})
+
+app.patch('/api/contracts/:id', requireAuth, async (c) => {
+  const id = Number(c.req.param('id'))
+  const b = (await c.req.json().catch(() => ({}))) as Record<string, unknown>
+  // A status change goes through the dedicated transition (validated set).
+  if (typeof b.status === 'string') {
+    try {
+      const contract = setContractStatus(id, b.status)
+      if (!contract) return c.json({ error: 'not found' }, 404)
+      return c.json({ contract })
+    } catch (e) {
+      return c.json({ error: (e as Error).message }, 400)
+    }
+  }
+  const contract = updateContract(id, b)
+  if (!contract) return c.json({ error: 'not found' }, 404)
+  return c.json({ contract })
+})
+
+// Finalise: assign a gapless number, freeze the AGB text in force now, mark sent.
+app.post('/api/contracts/:id/finalize', requireAuth, (c) => {
+  const id = Number(c.req.param('id'))
+  const wasFinal = !!(db.prepare('SELECT number FROM contracts WHERE id = ?').get(id) as { number?: string } | undefined)?.number
+  const contract = finalizeContract(id)
+  if (!contract) return c.json({ error: 'not found' }, 404)
+  if (!wasFinal) {
+    audit({ actor: c.get('user').username, action: 'contract.finalize', entity: 'contract', entityId: id, detail: { number: contract.number, type: contract.type } })
+    emit('contract.finalized', { id, number: contract.number, type: contract.type })
+  }
+  return c.json({ contract })
+})
+
+// Record acceptance / countersignature → status 'aktiv'.
+app.post('/api/contracts/:id/sign', requireAuth, async (c) => {
+  const id = Number(c.req.param('id'))
+  const b = (await c.req.json().catch(() => ({}))) as { signed_by?: string; signed_at?: string; note?: string }
+  try {
+    const contract = signContract(id, b.signed_by ?? null, b.note ?? null, b.signed_at ?? null)
+    if (!contract) return c.json({ error: 'not found' }, 404)
+    audit({ actor: c.get('user').username, action: 'contract.sign', entity: 'contract', entityId: id, detail: { signed_by: contract.signed_by, signed_at: contract.signed_at, number: contract.number } })
+    emit('contract.signed', { id, number: contract.number, signed_by: contract.signed_by })
+    return c.json({ contract })
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 400)
+  }
+})
+
+// Download a contract as a PDF (AGB appended in full).
+app.get('/api/contracts/:id/pdf', requireAuth, async (c) => {
+  const contract = getContract(Number(c.req.param('id')))
+  if (!contract) return c.json({ error: 'not found' }, 404)
+  const buf = await renderContractPdf(contract, getSettings())
+  c.header('Content-Type', 'application/pdf')
+  c.header('Content-Disposition', `inline; filename="${contractPdfFilename(contract)}"`)
+  return c.body(buf as unknown as ArrayBuffer)
+})
+
+// E-mail a finalised contract as a PDF to the client for signature.
+app.post('/api/contracts/:id/send', requireAuth, async (c) => {
+  const contract = getContract(Number(c.req.param('id')))
+  if (!contract) return c.json({ error: 'not found' }, 404)
+  if (!contract.number) return c.json({ error: 'Nur festgeschriebene Verträge können versendet werden.' }, 400)
+  if (!contract.client_email) return c.json({ error: 'Kein Empfänger (E-Mail) am Vertrag hinterlegt.' }, 400)
+  const s = getSettings()
+  let pdf: Buffer
+  try {
+    pdf = await renderContractPdf(contract, s)
+  } catch (e) {
+    return c.json({ error: 'PDF konnte nicht erstellt werden: ' + (e as Error).message }, 500)
+  }
+  const label = CONTRACT_TYPES.find((t) => t.id === contract.type)?.label ?? 'Vertrag'
+  const greeting = contract.client_name ? `Sehr geehrte Damen und Herren bei ${contract.client_name},` : 'Sehr geehrte Damen und Herren,'
+  const body =
+    `${greeting}\n\nanbei erhalten Sie unseren ${label} ${contract.number} als PDF. ` +
+    `Bitte prüfen Sie den Vertrag in Ruhe; bei Einverständnis senden Sie ihn uns gegengezeichnet zurück.\n\n` +
+    `Mit freundlichen Grüßen\n${s.business_name ?? ''}`
+  const email = { to: contract.client_email, from: SMTP.from || s.email || '', subject: `${label} ${contract.number}`, text: body }
+  try {
+    const { messageId, via } = await deliverMail(email, {
+      attachments: [{ filename: contractPdfFilename(contract), content: pdf, contentType: 'application/pdf' }],
+      actor: c.get('user').username,
+    })
+    audit({ actor: c.get('user').username, action: 'contract.send', entity: 'contract', entityId: contract.id, detail: { to: email.to, messageId, via } })
+    return c.json({ ok: true, messageId, to: email.to })
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 502)
+  }
+})
+
+app.delete('/api/contracts/:id', requireAuth, (c) => {
+  const id = Number(c.req.param('id'))
+  const r = deleteContract(id)
+  if (!r.ok && r.reason === 'not found') return c.json({ error: 'not found' }, 404)
+  if (!r.ok && r.reason === 'finalised') {
+    return c.json({ error: 'Festgeschriebene Verträge können nicht gelöscht werden.' }, 400)
+  }
+  audit({ actor: c.get('user').username, action: 'contract.delete', entity: 'contract', entityId: id })
+  return c.json({ ok: true })
+})
+
+// --- Leistungskatalog (reusable services/products) ------------------------
+
+app.get('/api/catalog', requireAuth, (c) => {
+  const activeOnly = c.req.query('active') === '1'
+  return c.json({ items: listCatalog(activeOnly) })
+})
+
+app.post('/api/catalog', requireAuth, async (c) => {
+  const b = (await c.req.json().catch(() => ({}))) as Record<string, unknown>
+  try {
+    const item = createCatalogItem(b)
+    audit({ actor: c.get('user').username, action: 'catalog.create', entity: 'catalog', entityId: item.id, detail: { name: item.name, unit_price_cents: item.unit_price_cents } })
+    return c.json({ item }, 201)
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 400)
+  }
+})
+
+app.patch('/api/catalog/:id', requireAuth, async (c) => {
+  const id = Number(c.req.param('id'))
+  const b = (await c.req.json().catch(() => ({}))) as Record<string, unknown>
+  try {
+    const item = updateCatalogItem(id, b)
+    if (!item) return c.json({ error: 'not found' }, 404)
+    audit({ actor: c.get('user').username, action: 'catalog.update', entity: 'catalog', entityId: id, detail: { fields: Object.keys(b) } })
+    return c.json({ item })
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 400)
+  }
+})
+
+app.delete('/api/catalog/:id', requireAuth, (c) => {
+  const id = Number(c.req.param('id'))
+  if (!getCatalogItem(id)) return c.json({ error: 'not found' }, 404)
+  deleteCatalogItem(id)
+  audit({ actor: c.get('user').username, action: 'catalog.delete', entity: 'catalog', entityId: id })
+  return c.json({ ok: true })
+})
+
+// --- Zeiterfassung (time tracking) ----------------------------------------
+
+app.get('/api/time', requireAuth, (c) => {
+  const q = c.req.query()
+  const filter = {
+    from: q.from || undefined,
+    to: q.to || undefined,
+    lead_id: q.lead_id ? Number(q.lead_id) : undefined,
+    billable: q.billable === '1' ? true : q.billable === '0' ? false : undefined,
+    invoiced: q.invoiced === '1' ? true : q.invoiced === '0' ? false : undefined,
+  }
+  return c.json({ entries: listTime(filter), summary: timeSummary(filter) })
+})
+
+app.post('/api/time', requireAuth, async (c) => {
+  const b = (await c.req.json().catch(() => ({}))) as Record<string, unknown>
+  const entry = createTimeEntry(b, c.get('user').username)
+  audit({ actor: c.get('user').username, action: 'time.create', entity: 'time', entityId: entry.id, detail: { minutes: entry.minutes, lead_id: entry.lead_id } })
+  return c.json({ entry }, 201)
+})
+
+app.patch('/api/time/:id', requireAuth, async (c) => {
+  const id = Number(c.req.param('id'))
+  const b = (await c.req.json().catch(() => ({}))) as Record<string, unknown>
+  try {
+    const entry = updateTimeEntry(id, b)
+    if (!entry) return c.json({ error: 'not found' }, 404)
+    return c.json({ entry })
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 400)
+  }
+})
+
+app.delete('/api/time/:id', requireAuth, (c) => {
+  const id = Number(c.req.param('id'))
+  const r = deleteTimeEntry(id)
+  if (!r.ok && r.reason === 'not found') return c.json({ error: 'not found' }, 404)
+  if (!r.ok && r.reason === 'invoiced') return c.json({ error: 'Abgerechnete Zeiteinträge können nicht gelöscht werden.' }, 400)
+  audit({ actor: c.get('user').username, action: 'time.delete', entity: 'time', entityId: id })
+  return c.json({ ok: true })
+})
+
+// Turn billable, not-yet-invoiced entries into a draft Rechnung (one line each).
+app.post('/api/time/invoice', requireAuth, async (c) => {
+  const b = (await c.req.json().catch(() => ({}))) as { entry_ids?: unknown }
+  const ids = Array.isArray(b.entry_ids) ? (b.entry_ids as unknown[]).map(Number) : []
+  try {
+    const document = invoiceTimeEntries(ids)
+    audit({ actor: c.get('user').username, action: 'time.invoice', entity: 'document', entityId: document.id, detail: { entry_ids: ids, lines: document.items.length } })
+    emit('document.created', { id: document.id, kind: 'rechnung', source: 'time' })
+    return c.json({ document }, 201)
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 400)
+  }
+})
+
+// --- Bankabgleich (CAMT.053 reconciliation) -------------------------------
+
+const CAMT_MAX_BYTES = 20 * 1024 * 1024 // 20 MB
+
+// Parse a CAMT.053 statement (multipart file field "file", or JSON { xml }) and
+// return entries with dedupe flags + match suggestions. Writes nothing.
+app.post('/api/bank/preview', requireAuth, async (c) => {
+  let xml = ''
+  const ct = c.req.header('content-type') ?? ''
+  try {
+    if (ct.includes('multipart/form-data')) {
+      const form = await c.req.parseBody()
+      const file = form['file']
+      if (!(file instanceof File)) return c.json({ error: 'Keine Datei hochgeladen.' }, 400)
+      if (file.size > CAMT_MAX_BYTES) return c.json({ error: 'Datei zu groß (max. 20 MB).' }, 413)
+      xml = await file.text()
+    } else {
+      const b = (await c.req.json().catch(() => ({}))) as { xml?: string }
+      xml = String(b.xml ?? '')
+    }
+  } catch {
+    return c.json({ error: 'Datei konnte nicht gelesen werden.' }, 400)
+  }
+  if (!/<(?:\w+:)?Ntry[\s>]/i.test(xml) && !/(^|\n)\s*:61:/.test(xml)) {
+    return c.json({ error: 'Kein Kontoauszug erkannt (CAMT.053-XML mit <Ntry> oder MT940 mit :61:).' }, 422)
+  }
+  return c.json({ preview: previewStatement(xml) })
+})
+
+// Persist confirmed matches: record a payment per matched credit, file the rest.
+app.post('/api/bank/apply', requireAuth, async (c) => {
+  const b = (await c.req.json().catch(() => ({}))) as { items?: ApplyItem[] }
+  const items = Array.isArray(b.items) ? b.items : []
+  if (items.length === 0) return c.json({ error: 'Keine Buchungen übergeben.' }, 400)
+  const result = applyMatches(items)
+  audit({ actor: c.get('user').username, action: 'bank.apply', detail: { applied: result.applied, matched: result.matched, ignored: result.ignored, skipped: result.skipped } })
+  for (const p of result.payments) {
+    emit('payment.recorded', { document_id: p.document_id, source: 'bank' })
+  }
+  return c.json({ result })
+})
+
+app.get('/api/bank/transactions', requireAuth, (c) =>
+  c.json({ transactions: listBankTransactions(Number(c.req.query('limit') ?? 100)) }),
+)
+
+// --- Kunden (customer registry) -------------------------------------------
+
+app.get('/api/customers', requireAuth, (c) => {
+  const activeOnly = c.req.query('active') === '1'
+  return c.json({ customers: listCustomers(activeOnly) })
+})
+
+app.get('/api/customers/:id', requireAuth, (c) => {
+  const customer = getCustomer(Number(c.req.param('id')))
+  if (!customer) return c.json({ error: 'not found' }, 404)
+  return c.json({ customer })
+})
+
+// Per-customer 360: linked documents, contracts, recurring + revenue totals.
+app.get('/api/customers/:id/overview', requireAuth, (c) => {
+  const overview = customerOverview(Number(c.req.param('id')))
+  if (!overview) return c.json({ error: 'not found' }, 404)
+  return c.json({ overview })
+})
+
+app.post('/api/customers', requireAuth, async (c) => {
+  const b = (await c.req.json().catch(() => ({}))) as Record<string, unknown>
+  try {
+    const customer = createCustomer(b)
+    audit({ actor: c.get('user').username, action: 'customer.create', entity: 'customer', entityId: customer.id, detail: { name: customer.name } })
+    return c.json({ customer }, 201)
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 400)
+  }
+})
+
+app.patch('/api/customers/:id', requireAuth, async (c) => {
+  const id = Number(c.req.param('id'))
+  const b = (await c.req.json().catch(() => ({}))) as Record<string, unknown>
+  try {
+    const customer = updateCustomer(id, b)
+    if (!customer) return c.json({ error: 'not found' }, 404)
+    audit({ actor: c.get('user').username, action: 'customer.update', entity: 'customer', entityId: id, detail: { fields: Object.keys(b) } })
+    return c.json({ customer })
+  } catch (e) {
+    return c.json({ error: (e as Error).message }, 400)
+  }
+})
+
+app.delete('/api/customers/:id', requireAuth, (c) => {
+  const id = Number(c.req.param('id'))
+  if (!getCustomer(id)) return c.json({ error: 'not found' }, 404)
+  deleteCustomer(id)
+  audit({ actor: c.get('user').username, action: 'customer.delete', entity: 'customer', entityId: id })
   return c.json({ ok: true })
 })
 
@@ -1149,6 +1526,13 @@ app.post('/api/admin/restore', requireAdmin, async (c) => {
 // --- dashboard (read-only KPIs) -------------------------------------------
 
 app.get('/api/dashboard', requireAuth, (c) => c.json({ dashboard: buildDashboard() }))
+
+// EÜR / period financial report (revenue − expenses by category + USt position).
+app.get('/api/report/euer', requireAuth, (c) => {
+  const from = c.req.query('from') || undefined
+  const to = c.req.query('to') || undefined
+  return c.json({ report: buildEuer(from, to) })
+})
 
 // --- users (multi-user; management is admin-only) -------------------------
 

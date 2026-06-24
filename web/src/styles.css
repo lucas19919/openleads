@@ -282,8 +282,10 @@ table.leads td.num, table.leads th.num { text-align: right; font-variant-numeric
 
 .doc-status { font-size: 11px; padding: 1px 8px; border-radius: 20px; font-weight: 600; background: #e8edf1; color: var(--muted); }
 .doc-status-versendet { background: #e6f1f3; color: var(--accent-dark); }
-.doc-status-bezahlt, .doc-status-angenommen { background: #e2f3ea; color: var(--ok); }
+.doc-status-bezahlt, .doc-status-angenommen, .doc-status-aktiv { background: #e2f3ea; color: var(--ok); }
 .doc-status-abgelehnt, .doc-status-storniert { background: #fbe3e0; color: var(--danger); }
+.doc-status-beendet { background: #e8edf1; color: var(--muted); }
+.catalog-picker { width: auto; max-width: 280px; }
 
 .doc-editor { max-width: 860px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
 .doc-editor-head {

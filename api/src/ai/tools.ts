@@ -1,6 +1,10 @@
-import { db, STAGES, PRIORITIES, EXPENSE_CATEGORIES, type LeadRow } from '../db'
+import { db, STAGES, PRIORITIES, EXPENSE_CATEGORIES, CONTRACT_TYPES, type LeadRow } from '../db'
 import { getDocument, getSettings, replaceItems, type DocItemInput } from '../documents'
 import { createExpense, listExpenses, expenseSummary } from '../expenses'
+import { listCatalog, createCatalogItem } from '../catalog'
+import { listTime, timeSummary, createTimeEntry, invoiceTimeEntries } from '../timetracking'
+import { listContracts, createContract, finalizeContract, contractFromDocument } from '../contracts'
+import { listCustomers, getCustomer, createCustomer } from '../customers'
 import { insertLead } from '../leads'
 import { audit } from '../audit'
 import { analyzeLead, draftOutreach } from './leadIntel'
@@ -287,16 +291,17 @@ export const TOOLS: AgentTool[] = [
 
   def(
     'create_document',
-    'Erstelle einen Entwurf (Angebot/Rechnung), optional mit Positionen und Bezug zu einem Lead. ' +
-      'Mit `lead_id` wird das Dokument mit dem Lead verknüpft; fehlt `client_name`, wird die Firma ' +
-      'des Leads als Empfänger übernommen. Nicht finalisiert.',
+    'Erstelle einen Entwurf (Angebot/Rechnung), optional mit Positionen und Bezug zu einem Lead oder ' +
+      'Kunden. Mit `customer_id` werden Empfänger/Adresse/USt-IdNr. aus dem Kunden übernommen; mit ' +
+      '`lead_id` wird die Firma des Leads als Empfänger genommen. Nicht finalisiert.',
     obj({
       kind: { type: 'string', enum: ['angebot', 'rechnung'] },
-      client_name: { type: 'string', description: 'Empfänger (falls leer und lead_id gesetzt: Firma des Leads)' },
+      client_name: { type: 'string', description: 'Empfänger (überschreibt Kunde/Lead)' },
       title: { type: 'string' },
       intro: { type: 'string' },
       notes: { type: 'string' },
       lead_id: { type: 'number' },
+      customer_id: { type: 'number', description: 'Kunde aus dem Kundenstamm (prefillt Adresse/USt-IdNr.)' },
       items: {
         type: 'array',
         items: obj({
@@ -310,9 +315,10 @@ export const TOOLS: AgentTool[] = [
     (a, ctx) => {
       const kind = a.kind === 'angebot' ? 'angebot' : 'rechnung'
       const s = getSettings()
-      // Resolve the lead link: a given lead_id must exist, and an empty client_name
-      // falls back to the lead's company so an offer is never addressed to nobody.
-      let leadId: number | null = null
+      // Prefill precedence: explicit client_name > customer > lead.
+      const customer = a.customer_id != null ? getCustomer(Number(a.customer_id)) : null
+      if (a.customer_id != null && !customer) return { error: `Kunde ${a.customer_id} nicht gefunden` }
+      let leadId: number | null = customer?.lead_id ?? null
       let lead: LeadRow | undefined
       if (a.lead_id != null) {
         leadId = Number(a.lead_id)
@@ -320,14 +326,22 @@ export const TOOLS: AgentTool[] = [
         if (!lead) return { error: `Lead ${leadId} nicht gefunden` }
       }
       const clientName =
-        (typeof a.client_name === 'string' && a.client_name.trim()) || lead?.company || null
+        (typeof a.client_name === 'string' && a.client_name.trim()) || customer?.name || lead?.company || null
       const info = db.prepare(
-        `INSERT INTO documents (kind, lead_id, client_name, title, intro, notes, small_business, vat_rate)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO documents (kind, lead_id, customer_id, client_name, client_address, client_zip, client_city,
+           client_email, client_vat_id, client_type, title, intro, notes, small_business, vat_rate)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         kind,
         leadId,
+        customer?.id ?? null,
         clientName,
+        customer?.address ?? null,
+        customer?.zip ?? null,
+        customer?.city ?? lead?.city ?? null,
+        customer?.email ?? lead?.email ?? null,
+        customer?.vat_id ?? null,
+        customer?.client_type === 'privat' ? 'privat' : 'geschaeft',
         (a.title as string) ?? (kind === 'rechnung' ? 'Rechnung' : 'Angebot'),
         (a.intro as string) ?? null,
         (a.notes as string) ?? null,
@@ -336,7 +350,7 @@ export const TOOLS: AgentTool[] = [
       )
       const id = Number(info.lastInsertRowid)
       if (Array.isArray(a.items)) replaceItems(id, a.items as DocItemInput[])
-      audit({ actor: ctx.actor, action: 'ai.create_document', entity: 'document', entityId: id, detail: { kind }, ip: ctx.ip })
+      audit({ actor: ctx.actor, action: 'ai.create_document', entity: 'document', entityId: id, detail: { kind, customer_id: customer?.id ?? null }, ip: ctx.ip })
       return { ok: true, document: getDocument(id) }
     },
   ),
@@ -398,15 +412,271 @@ export const TOOLS: AgentTool[] = [
     },
   ),
 
+  // --- Leistungskatalog (reusable services/products) ---
+  def(
+    'list_catalog',
+    'Liste den Leistungskatalog (wiederverwendbare Positionen mit Netto-Preis/Einheit/USt). ' +
+      'Standardmäßig nur aktive Einträge.',
+    obj({ include_inactive: { type: 'boolean', description: 'auch inaktive Einträge zeigen' } }),
+    (a) => {
+      const items = listCatalog(!a.include_inactive)
+      return { count: items.length, items }
+    },
+  ),
+
+  def(
+    'create_catalog_item',
+    'Lege eine wiederverwendbare Katalog-Position an (z. B. „Webdesign Stunde"). Preis ist NETTO ' +
+      'in Cent. Diese Positionen können später in Angebote/Rechnungen übernommen werden.',
+    obj({
+      name: { type: 'string', description: 'Bezeichnung (Pflicht)' },
+      description: { type: 'string', description: 'Langtext für die Belegzeile (Standard: name)' },
+      unit: { type: 'string', description: 'Std / Stk / Pauschal / Monat …' },
+      unit_price_cents: { type: 'number', description: 'Netto-Einzelpreis in Cent' },
+      vat_rate: { type: 'number', enum: [0, 7, 19] },
+      category: { type: 'string' },
+    }, ['name']),
+    (a, ctx) => {
+      try {
+        const item = createCatalogItem({
+          name: a.name as string,
+          description: (a.description as string) ?? null,
+          unit: (a.unit as string) ?? null,
+          unit_price_cents: Number(a.unit_price_cents ?? 0),
+          vat_rate: Number(a.vat_rate ?? 19),
+          category: (a.category as string) ?? null,
+        })
+        audit({ actor: ctx.actor, action: 'ai.create_catalog', entity: 'catalog', entityId: item.id, detail: { name: item.name }, ip: ctx.ip })
+        return { ok: true, item }
+      } catch (e) {
+        return { error: (e as Error).message }
+      }
+    },
+  ),
+
+  // --- Zeiterfassung (time tracking) ---
+  def(
+    'list_time',
+    'Liste Zeiteinträge (optional gefiltert) inkl. Summe. Nutze `only_open: true`, um nur ' +
+      'abrechenbare, noch nicht abgerechnete Einträge zu sehen — daraus lässt sich eine Rechnung bauen.',
+    obj({
+      from: { type: 'string', description: 'ab Datum YYYY-MM-DD' },
+      to: { type: 'string', description: 'bis Datum YYYY-MM-DD' },
+      lead_id: { type: 'number' },
+      only_open: { type: 'boolean', description: 'nur abrechenbare, nicht abgerechnete Einträge' },
+      limit: { type: 'number', description: 'max. Treffer, Standard 30' },
+    }),
+    (a) => {
+      const filter = {
+        from: typeof a.from === 'string' ? a.from : undefined,
+        to: typeof a.to === 'string' ? a.to : undefined,
+        lead_id: a.lead_id != null ? Number(a.lead_id) : undefined,
+        billable: a.only_open ? true : undefined,
+        invoiced: a.only_open ? false : undefined,
+      }
+      const limit = Math.min(Number(a.limit ?? 30) || 30, 100)
+      return { summary: timeSummary(filter), entries: listTime(filter).slice(0, limit) }
+    },
+  ),
+
+  def(
+    'log_time',
+    'Erfasse Arbeitszeit. Dauer entweder als `minutes` (Minuten) ODER `hours` (Stunden, z. B. 1.5). ' +
+      'Stundensatz ist NETTO in Cent. Optional einem Lead zuordnen. Abrechenbare Einträge können ' +
+      'später per `invoice_time` zu einer Rechnung werden.',
+    obj({
+      description: { type: 'string', description: 'Tätigkeit' },
+      minutes: { type: 'number', description: 'Dauer in Minuten' },
+      hours: { type: 'number', description: 'Dauer in Stunden (Alternative zu minutes)' },
+      rate_cents: { type: 'number', description: 'Netto-Stundensatz in Cent' },
+      entry_date: { type: 'string', description: 'YYYY-MM-DD (Standard heute)' },
+      lead_id: { type: 'number' },
+      billable: { type: 'boolean', description: 'Standard true' },
+    }, ['description']),
+    (a, ctx) => {
+      const minutes =
+        a.minutes != null ? Math.round(Number(a.minutes)) : a.hours != null ? Math.round(Number(a.hours) * 60) : 0
+      if (!(minutes > 0)) return { error: 'Dauer (minutes oder hours) muss positiv sein.' }
+      const entry = createTimeEntry(
+        {
+          description: (a.description as string) ?? null,
+          minutes,
+          rate_cents: Number(a.rate_cents ?? 0),
+          entry_date: (a.entry_date as string) ?? null,
+          lead_id: a.lead_id != null ? Number(a.lead_id) : null,
+          billable: a.billable === false ? 0 : 1,
+        },
+        ctx.actor,
+      )
+      audit({ actor: ctx.actor, action: 'ai.log_time', entity: 'time', entityId: entry.id, detail: { minutes, lead_id: entry.lead_id }, ip: ctx.ip })
+      return { ok: true, entry }
+    },
+  ),
+
+  def(
+    'invoice_time',
+    'Erzeuge aus ausgewählten Zeiteinträgen einen Rechnungs-ENTWURF (eine Position je Eintrag, ' +
+      'Stunden × Satz). Nur abrechenbare, noch nicht abgerechnete Einträge zählen; sie werden danach ' +
+      'als abgerechnet markiert (keine Doppelabrechnung). Finalisiert NICHT.',
+    obj({ entry_ids: { type: 'array', items: { type: 'number' }, description: 'IDs der Zeiteinträge' } }, ['entry_ids']),
+    (a, ctx) => {
+      const ids = Array.isArray(a.entry_ids) ? (a.entry_ids as unknown[]).map(Number) : []
+      try {
+        const document = invoiceTimeEntries(ids)
+        audit({ actor: ctx.actor, action: 'ai.time_invoice', entity: 'document', entityId: document.id, detail: { entry_ids: ids, lines: document.items.length }, ip: ctx.ip })
+        return { ok: true, document }
+      } catch (e) {
+        return { error: (e as Error).message }
+      }
+    },
+  ),
+
+  // --- Verträge (contracts / AGB) ---
+  def(
+    'list_contracts',
+    'Liste Verträge (neueste zuerst) mit Nummer, Art, Kunde, Status und Wert.',
+    obj({ limit: { type: 'number', description: 'max. Treffer, Standard 20' } }),
+    (a) => {
+      const limit = Math.min(Number(a.limit ?? 20) || 20, 50)
+      const contracts = listContracts().slice(0, limit)
+      return { count: contracts.length, contracts }
+    },
+  ),
+
+  def(
+    'create_contract',
+    'Erstelle einen Vertrags-ENTWURF (Dienst-/Werk-/Wartungsvertrag, Auftragsbestätigung, ' +
+      'Rahmenvertrag, AVV). `value_cents` ist der Netto-Auftragswert. Optional einem Lead zuordnen ' +
+      '(Kunde wird dann übernommen). Beim Festschreiben (`finalize_contract`) bekommt der Vertrag ' +
+      'eine Nummer und die AGB aus den Einstellungen werden eingefroren. Nicht finalisiert.',
+    obj({
+      type: { type: 'string', enum: CONTRACT_TYPES.map((t) => t.id), description: 'Vertragsart' },
+      title: { type: 'string' },
+      client_name: { type: 'string', description: 'Auftraggeber (falls leer und lead_id gesetzt: Firma des Leads)' },
+      intro: { type: 'string', description: 'Präambel (optional)' },
+      body: { type: 'string', description: 'Vertragsgegenstand / Leistungsbeschreibung' },
+      value_cents: { type: 'number', description: 'Netto-Auftragswert in Cent' },
+      payment_terms: { type: 'string', description: 'Zahlungsmodalitäten (Freitext)' },
+      start_date: { type: 'string', description: 'Laufzeitbeginn YYYY-MM-DD' },
+      end_date: { type: 'string', description: 'Laufzeitende YYYY-MM-DD (leer = unbefristet)' },
+      notice_period: { type: 'string', description: 'Kündigungsfrist (Freitext)' },
+      lead_id: { type: 'number' },
+      customer_id: { type: 'number', description: 'Kunde aus dem Kundenstamm (prefillt Auftraggeber/Adresse)' },
+    }, ['title']),
+    (a, ctx) => {
+      const contract = createContract(
+        {
+          type: (a.type as string) ?? null,
+          title: a.title as string,
+          client_name: (a.client_name as string) ?? null,
+          intro: (a.intro as string) ?? null,
+          body: (a.body as string) ?? null,
+          value_cents: Number(a.value_cents ?? 0),
+          payment_terms: (a.payment_terms as string) ?? null,
+          start_date: (a.start_date as string) ?? null,
+          end_date: (a.end_date as string) ?? null,
+          notice_period: (a.notice_period as string) ?? null,
+          lead_id: a.lead_id != null ? Number(a.lead_id) : null,
+          customer_id: a.customer_id != null ? Number(a.customer_id) : null,
+        },
+        ctx.actor,
+      )
+      audit({ actor: ctx.actor, action: 'ai.create_contract', entity: 'contract', entityId: contract.id, detail: { type: contract.type }, ip: ctx.ip })
+      return { ok: true, contract }
+    },
+  ),
+
+  def(
+    'finalize_contract',
+    'Schreibe einen Vertrags-Entwurf fest: vergibt eine fortlaufende Vertragsnummer und friert die ' +
+      'aktuellen AGB in den Vertrag ein. Danach ist der Inhalt unveränderlich. Bestätige vorher im Klartext.',
+    obj({ id: { type: 'number' } }, ['id']),
+    (a, ctx) => {
+      const contract = finalizeContract(Number(a.id))
+      if (!contract) return { error: 'Vertrag nicht gefunden' }
+      audit({ actor: ctx.actor, action: 'ai.finalize_contract', entity: 'contract', entityId: contract.id, detail: { number: contract.number }, ip: ctx.ip })
+      return { ok: true, contract }
+    },
+  ),
+
+  def(
+    'contract_from_document',
+    'Erzeuge aus einem Dokument (i. d. R. einem angenommenen Angebot) einen Vertrags-ENTWURF: ' +
+      'Empfänger, Kunde/Lead, Netto-Wert und eine Leistungsbeschreibung aus den Positionen werden ' +
+      'übernommen. Nicht finalisiert.',
+    obj({ document_id: { type: 'number' } }, ['document_id']),
+    (a, ctx) => {
+      const contract = contractFromDocument(Number(a.document_id), ctx.actor)
+      if (!contract) return { error: 'Dokument nicht gefunden' }
+      audit({ actor: ctx.actor, action: 'ai.contract_from_document', entity: 'contract', entityId: contract.id, detail: { document_id: Number(a.document_id) }, ip: ctx.ip })
+      return { ok: true, contract }
+    },
+  ),
+
+  // --- Kunden (customer registry) ---
+  def(
+    'list_customers',
+    'Liste den Kundenstamm (Stammdaten für Belege). Standardmäßig nur aktive Kunden. Nutze die ' +
+      '`id` als `customer_id` in `create_document`/`create_contract`, um Empfänger + Adresse zu übernehmen.',
+    obj({ query: { type: 'string', description: 'Freitext über Name/Ort/E-Mail' }, include_inactive: { type: 'boolean' }, limit: { type: 'number' } }),
+    (a) => {
+      const q = typeof a.query === 'string' ? a.query.trim().toLowerCase() : ''
+      let customers = listCustomers(!a.include_inactive)
+      if (q) customers = customers.filter((c) => `${c.name} ${c.city ?? ''} ${c.email ?? ''}`.toLowerCase().includes(q))
+      const limit = Math.min(Number(a.limit ?? 30) || 30, 100)
+      return { count: customers.length, customers: customers.slice(0, limit) }
+    },
+  ),
+
+  def(
+    'create_customer',
+    'Lege einen Kunden im Kundenstamm an (einmalig pflegen, in Belegen wiederverwenden). Nur `name` ' +
+      'ist Pflicht. Danach kann der Kunde per `customer_id` in Angebot/Rechnung/Vertrag übernommen werden.',
+    obj({
+      name: { type: 'string', description: 'Firma oder Name (Pflicht)' },
+      contact_name: { type: 'string', description: 'Ansprechpartner' },
+      address: { type: 'string' },
+      zip: { type: 'string' },
+      city: { type: 'string' },
+      email: { type: 'string' },
+      phone: { type: 'string' },
+      vat_id: { type: 'string', description: 'USt-IdNr.' },
+      client_type: { type: 'string', enum: ['geschaeft', 'privat'] },
+      lead_id: { type: 'number', description: 'optional: aus diesem Lead entstanden' },
+    }, ['name']),
+    (a, ctx) => {
+      try {
+        const customer = createCustomer({
+          name: a.name as string,
+          contact_name: (a.contact_name as string) ?? null,
+          address: (a.address as string) ?? null,
+          zip: (a.zip as string) ?? null,
+          city: (a.city as string) ?? null,
+          email: (a.email as string) ?? null,
+          phone: (a.phone as string) ?? null,
+          vat_id: (a.vat_id as string) ?? null,
+          client_type: (a.client_type as string) ?? null,
+          lead_id: a.lead_id != null ? Number(a.lead_id) : null,
+        })
+        audit({ actor: ctx.actor, action: 'ai.create_customer', entity: 'customer', entityId: customer.id, detail: { name: customer.name }, ip: ctx.ip })
+        return { ok: true, customer }
+      } catch (e) {
+        return { error: (e as Error).message }
+      }
+    },
+  ),
+
   def(
     'get_settings',
-    'Lies das Geschäftsprofil (Absenderdaten, §19-Status, USt-Satz, Zahlungsziel).',
+    'Lies das Geschäftsprofil (Absenderdaten, §19-Status, USt-Satz, Zahlungsziel, Standard-Stundensatz).',
     obj({}),
     () => {
       const s = getSettings()
       return {
         business_name: s.business_name, owner: s.owner, city: s.city, email: s.email,
         small_business: !!s.small_business, vat_rate: s.vat_rate, payment_terms: s.payment_terms,
+        default_hourly_rate_cents: s.default_hourly_rate_cents ?? 0,
+        agb_set: !!(s.agb_text && s.agb_text.trim()),
       }
     },
   ),

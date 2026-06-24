@@ -4,6 +4,201 @@ A running log of what's landed, so picking the work back up is easy. Newest firs
 
 ## Latest
 
+- **EÜR / period financial report.** An in-app income-surplus overview for a date
+  range, derived from existing data (no new state): revenue (finalised, non-storniert
+  invoices by issue date) − expenses (by SKR03 category, by Belegdatum) = result,
+  plus the **VAT position** (USt eingenommen − Vorsteuer = Zahllast, the UStVA figure).
+  `buildEuer()` in `api/src/report.ts`; route `GET /api/report/euer?from&to`. Shown in
+  **Einstellungen → Steuerberater-Export** ("EÜR-Übersicht anzeigen" reuses the
+  from/to pickers) as KPI cards + an expenses-by-category table. Complements the
+  DATEV/CSV exports with a human-readable view; not tax advice. **3 tests**
+  (sum + VAT position, date-range filtering, §19 → no VAT) → **172 API tests green**;
+  api + web typecheck clean; web builds; endpoint smoke-tested live.
+
+- **MT940 bank import.** Completes bank reconciliation: alongside CAMT.053, the
+  importer now also parses **MT940** (SWIFT fixed-format) — `parseMt940` reads the
+  `:61:`/`:86:` blocks (value date, credit/debit mark, amount, ?NN-subfield
+  Verwendungszweck + payer), conservative on the mark so reversals never auto-book.
+  A new `parseStatement()` auto-detects CAMT vs MT940, so the whole existing
+  matcher/apply/dedupe/UI pipeline works unchanged; the upload route + BankView accept
+  `.sta`/`.txt` too. **3 new tests** (MT940 parse, format auto-detect, MT940
+  credit→match→book) → **169 API tests green**; api + web typecheck clean; web builds;
+  a real `.sta` upload smoke-tested live (matched by number, invoice → bezahlt).
+
+- **Customer 360 (per-client cockpit).** Turns the customer links from the Kunden
+  release into a real overview: `customerOverview()` (`api/src/customers.ts`)
+  aggregates everything tied to a `customer_id` — documents (with gross/paid/open),
+  contracts, recurring templates — plus revenue totals (invoiced/paid/open, quote
+  count, active-contract count). Route `GET /api/customers/:id/overview`. The Kunden
+  editor now shows the overview below the form: three KPI cards + linked-belege
+  tables with jump-through to Rechnungen/Verträge/Serien. **2 new tests** (aggregation
+  totals incl. part-payment + quote/contract counting; null on missing) →
+  **166 API tests green**; api + web typecheck clean; web builds; overview
+  smoke-tested live (invoiced 119 €, 50 € paid, 69 € open, 1 active contract).
+
+- **Angebot → Vertrag conversion.** Turn an accepted offer into a contract draft,
+  mirroring the existing Angebot→Rechnung convert and wiring the offer pipeline into
+  contracts. `contractFromDocument()` (`api/src/contracts.ts`) carries the client
+  block, customer/lead links and the net value over, and builds a
+  Leistungsbeschreibung from the offer's line items; the contract links back via
+  `document_id`. Route `POST /api/documents/:id/to-contract`, an **"In Vertrag
+  umwandeln"** button on Angebote in the editor, and an AI tool
+  `contract_from_document` for the copilot. **3 new tests** (helper builds the draft
+  + null on missing doc; agent-tool round-trip) → **164 API tests green**; api + web
+  typecheck clean; web builds; conversion smoke-tested live (offer → werkvertrag
+  draft, €300 net, linked).
+
+- **AGB on Angebot/Rechnung PDFs (optional).** Deepens the contracts/AGB
+  integration: a settings toggle (`agb_attach_documents`) appends the operator's AGB
+  as a final page to every quote/invoice PDF, so the terms travel with the document
+  — not just with contracts. Uses the embedded DejaVu fonts so it stays valid under
+  PDF/A-3, is appended after the footer/body (invoice page untouched), and leaves the
+  embedded ZUGFeRD/Factur-X XML attachment unaffected. Toggle lives in **Einstellungen
+  → Verträge & AGB**. **3 PDF tests** (always-valid PDF, appendix only when enabled +
+  grows the file, no-op without AGB text) added to `npm test`. **161 API tests
+  green**; api + web typecheck clean; web builds; toggle-persists-and-enlarges-PDF
+  smoke-tested live (29 KB → 32 KB).
+
+- **AI copilot drives the customer registry too.** Kept the "AI operates the
+  product" principle intact for the newest module: added `list_customers` /
+  `create_customer` agent tools, and `create_document` / `create_contract` now accept
+  a `customer_id` that prefills the recipient (name/address/USt-IdNr./type) from the
+  Kundenstamm. Copilot prompt nudges it to look up a known customer first and pass
+  the id rather than retyping. **5 new agent-tool tests** (customer round-trip,
+  prefill via both create tools, name-required, unknown-id error) — **158 API tests
+  green**; typecheck clean. Backend-only.
+
+- **Kunden (customer registry).** A central client list so a customer is maintained
+  once and reused — the pragmatic, additive answer to the roadmap's contacts split
+  (the flat lead row is untouched; no risky migration).
+  - **`customers` table + `api/src/customers.ts`**: CRUD (name/contact/address/USt-
+    IdNr./client type/payment-term override/notes/active). Nullable `customer_id`
+    links added to `documents`, `contracts`, `recurring_invoices`. The document/
+    contract/recurring **create paths now accept `customer_id`** and prefill the
+    `client_*` fields from it (precedence: explicit field > customer > lead), storing
+    the link — but the client block stays a **value snapshot**, so renaming a
+    customer never rewrites an issued document (verified by a test + live smoke).
+    Routes under `/api/customers`.
+  - **Web**: a new **Kunden** tab (`web/src/components/customers/CustomersView.tsx`) —
+    CRUD plus per-customer quick-create buttons (Rechnung / Angebot / Vertrag) that
+    spin up a prefilled draft and jump to the right module.
+  - **5 customer tests** (validation, active filter, prefill + snapshot immutability,
+    explicit-override, recurring prefill) wired into `npm test`; three existing doc
+    fixtures updated for the new `customer_id` field. **153 API tests green**; api +
+    web typecheck clean; web builds; create→prefill→rename-immutability smoke-tested
+    live.
+
+- **Bankabgleich (CAMT.053 reconciliation).** Closes the roadmap's "record payments
+  by hand" gap — import a bank statement, auto-match incoming credits to open
+  invoices, record the payments.
+  - **`bank_transactions` table + `api/src/bank.ts`**: a dependency-light CAMT.053
+    (ISO 20022) parser (hand-rolled, namespace-tolerant — the project ships no XML
+    lib, like `facturx.ts` building CII by hand), skipping non-booked entries.
+    `suggestMatch` ties a credit to an open invoice by the **invoice number in the
+    Verwendungszweck**, falling back to a unique exact amount. `applyMatches` records
+    a payment per confirmed credit (reusing `addPayment`, which reconciles the
+    invoice to `bezahlt`) and files the bank row; **idempotent via `ext_ref`**
+    (AcctSvcrRef/NtryRef or a content hash) so re-importing a statement never
+    double-books. Routes: `POST /api/bank/preview` (multipart file or `{xml}`,
+    writes nothing), `POST /api/bank/apply`, `GET /api/bank/transactions`.
+  - **Web**: a new **Bank** tab (`web/src/components/bank/BankView.tsx`) — upload a
+    `.xml`, review each entry with its suggested invoice (or override / ignore via a
+    dropdown), then "Zuordnungen übernehmen". Already-imported entries are shown
+    greyed.
+  - **6 bank tests** (parse, booked-only filter, number/amount matching, debit→no
+    match, apply records + reconciles + dedups) wired into `npm test`. **148 API
+    tests green**; api + web typecheck clean; web builds; the full
+    import→match→apply→re-import-dedupe flow smoke-tested against a live server.
+
+- **Dashboard (Übersicht) now covers the whole business.** The new modules were
+  invisible on the cockpit. Extended `buildDashboard` (`api/src/dashboard.ts`,
+  read-only, derived live) with: **unbilled billable time** (count, hours, € — money
+  earned but not yet invoiced), **active contracts** (count + summed net value +
+  open drafts), and a **Fristende-list** of active/sent contracts ending within 60
+  days (renewal/notice nudge, soonest first). Two new KPI cards ("Nicht abgerechnet"
+  → Zeiten, "Aktive Verträge" → Verträge) plus an expiring-contracts reminder table
+  on the Übersicht. **4 dashboard tests** (unbilled-time math, active count/value,
+  60-day expiry window incl. end-date/status exclusions) wired into `npm test`.
+  **142 API tests green**; api + web typecheck clean; web builds; the new dashboard
+  fields smoke-tested against a live server.
+
+- **AI copilot now drives the new modules.** The three modules added this loop
+  (catalog, time, contracts) were UI-only; the copilot couldn't touch them — which
+  broke the product's first principle ("the AI operates the product"). Added 9
+  audited agent tools in `api/src/ai/tools.ts`: `list_catalog` / `create_catalog_item`,
+  `list_time` / `log_time` / `invoice_time` (log hours or minutes, then turn
+  billable entries into a draft Rechnung), and `list_contracts` / `create_contract`
+  / `finalize_contract` (draft from a description, then assign number + freeze AGB).
+  `get_settings` now also reports the default hourly rate + whether AGB are set. The
+  copilot system prompt advertises the new capabilities. **5 new agent-tool tests**
+  (round-trips via `runTool`, hours→minutes, double-bill prevention, AGB freeze)
+  wired into `npm test`. **138 API tests green**; typecheck clean. Backend-only —
+  the Chat UI renders any tool's steps generically.
+
+- **Zeiterfassung (time tracking).** Log billable time and turn it into invoices —
+  closes the agency/freelancer "hours → Rechnung" loop.
+  - **`time_entries` table + `api/src/timetracking.ts`**: entries (date, lead,
+    description, minutes, net hourly rate, billable) with the amount derived as
+    minutes/60 × rate. `invoiceTimeEntries(ids)` pulls billable, not-yet-invoiced
+    entries into a single **draft** Rechnung (one line each, hours × rate, German
+    date in the line text), then stamps each with `document_id` + `invoiced_at` so
+    it can never be billed twice — all-or-nothing in one transaction. Invoiced
+    entries are locked against edit/delete. Routes under `/api/time`
+    (list+summary with from/to/lead/billable/invoiced filters, create/patch/delete,
+    and `/time/invoice`). New setting `default_hourly_rate_cents`.
+  - **Web**: a new **Zeiten** tab (`web/src/components/time/TimeView.tsx`) — a quick
+    log form (decimal-hours input, default + catalog rate prefill via the
+    `CatalogPicker`), a filterable list with live totals, and checkbox-select →
+    "Rechnung aus Auswahl erstellen". Default-rate field added to Settings.
+  - **6 time tests** wired into `npm test`. **133 API tests green**; api + web
+    typecheck clean; web builds; the full log→invoice→double-bill-refused flow
+    smoke-tested against a live server.
+
+- **Leistungskatalog (services/products catalog).** Reusable line items so a
+  position is picked, not retyped, across the invoicing surfaces.
+  - **`catalog_items` table + `api/src/catalog.ts`**: CRUD with name/unit/net price/
+    USt/SKU/category/active/sort. Items are copied **by value** into documents (no
+    FK), so editing or deleting a catalog entry never mutates an already-written
+    invoice — a deliberate, tested property. Routes under `/api/catalog`
+    (list with `?active=1`, create/patch/delete), audited.
+  - **Web**: a `CatalogPicker` ("+ Aus Katalog" dropdown, hidden when empty) wired
+    into the **Angebot/Rechnung editor** and the **Serienrechnung editor**; picking
+    an item appends a prefilled line (and replaces a lone empty starter row). Full
+    management UI (add / inline-edit price-unit-USt / toggle active / delete) lives
+    in **Einstellungen → Leistungskatalog**, editable by members too.
+  - **6 catalog tests** wired into `npm test`. **127 API tests green**; api + web
+    typecheck clean; web builds; catalog CRUD + active-filter smoke-tested against a
+    live server (no contract-module regression).
+
+- **Verträge (contracts) + AGB.** A new module to run the contract side of the
+  business, built on the proven documents/recurring idioms (no new deps).
+  - **AGB management** in Settings (`agb_text` + `contract_prefix`/`contract_next`).
+    The AGB are *snapshotted onto the contract at finalise* (`contracts.agb_text`),
+    so the terms in force at signature govern and editing the standard AGB later
+    never mutates an issued contract — verified by a test.
+  - **`contracts` table + `api/src/contracts.ts`**: CRUD, gapless numbering
+    (`V-YYYY-0001`, same transactional counter pattern as invoicing), AGB freeze on
+    `finalize`, a `sign` transition (records signatory + date → status `aktiv`), and
+    free status transitions (`abgelehnt`/`beendet`). Types: Dienst-/Werk-/Wartungs-
+    vertrag, Auftragsbestätigung, Rahmenvertrag, AVV (Art. 28 DSGVO), Sonstiges.
+  - **Contract PDF** (`api/src/contractPdf.ts`): invoice-styled letterhead, parties
+    block (Auftragnehmer/Auftraggeber), numbered §-sections (Präambel, Vertrags-
+    gegenstand, Vergütung incl. §19/USt split, Laufzeit & Kündigung), the AGB in
+    full, and a two-column signature block. Multi-page via `bufferPages` with a
+    footer + "Seite X/Y" stamped on every page.
+  - **Routes** under `/api/contracts` (list/get/create/patch/finalize/sign/pdf/
+    send/delete) — finalised contracts can't be deleted, drafts can; `/send`
+    e-mails the PDF via the existing gated `deliverMail`. New webhook events
+    `contract.created` / `contract.finalized` / `contract.signed`, audited like the
+    rest.
+  - **Web**: a new **Verträge** tab (`web/src/components/contracts/ContractsView.tsx`)
+    — list + a lock-aware editor (content freezes once finalised) with festschreiben/
+    senden/unterzeichnen/PDF + a status select; AGB editor added to Settings.
+  - **10 contract tests** (totals, gapless numbering, AGB-freeze immutability,
+    sign/finalize idempotency, delete rules, multi-page PDF render) wired into
+    `npm test`. **121 API tests green**; api + web typecheck clean; web builds; the
+    full create→finalize→sign→PDF→send lifecycle smoke-tested against a live server.
+
 - **Connections: the money loop + more adapters + OAuth + an MCP server.** Built on
   the integrations foundation; docs in `docs/INTEGRATIONS.md`.
   - **Money loop closed** (fully verifiable): per-invoice **Stripe/GoCardless

@@ -22,6 +22,9 @@ export const WEBHOOK_EVENTS = [
   'expense.created',
   'expense.updated',
   'expense.deleted',
+  'contract.created',
+  'contract.finalized',
+  'contract.signed',
 ] as const
 export type WebhookEvent = (typeof WEBHOOK_EVENTS)[number]
 

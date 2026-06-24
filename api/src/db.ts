@@ -86,6 +86,29 @@ export const DOC_STATUSES: Record<DocKind, readonly string[]> = {
   rechnung: ['entwurf', 'versendet', 'bezahlt', 'storniert'],
 }
 
+// --- Verträge (contracts / AGB) ---
+// A contract (Vertrag) is a standalone agreement with a client: parties, scope,
+// remuneration, term, and the operator's AGB incorporated by reference. The AGB
+// text is *snapshotted* onto the contract when it is finalised, because the terms
+// in force at signature are the ones that govern — editing the standard AGB later
+// must not retroactively change an issued contract. `id` is the stable key sent to
+// the client and stored on rows; relabel freely, keep ids stable.
+export const CONTRACT_TYPES = [
+  { id: 'dienstvertrag', label: 'Dienstleistungsvertrag' },
+  { id: 'werkvertrag', label: 'Werkvertrag' },
+  { id: 'wartungsvertrag', label: 'Wartungs-/Servicevertrag' },
+  { id: 'auftragsbestaetigung', label: 'Auftragsbestätigung' },
+  { id: 'rahmenvertrag', label: 'Rahmenvertrag' },
+  { id: 'avv', label: 'Auftragsverarbeitung (Art. 28 DSGVO)' },
+  { id: 'sonstiges', label: 'Sonstiger Vertrag' },
+] as const
+export type ContractType = (typeof CONTRACT_TYPES)[number]['id']
+
+// Lifecycle: entwurf → versendet (number assigned, AGB frozen) → aktiv (gegen-
+// gezeichnet) → beendet (gekündigt/abgelaufen); abgelehnt is the dead end.
+export const CONTRACT_STATUSES = ['entwurf', 'versendet', 'aktiv', 'beendet', 'abgelehnt'] as const
+export type ContractStatus = (typeof CONTRACT_STATUSES)[number]
+
 db.exec(`
 CREATE TABLE IF NOT EXISTS users (
   id            INTEGER PRIMARY KEY,
@@ -510,6 +533,188 @@ CREATE INDEX IF NOT EXISTS idx_expenses_date ON expenses(expense_date DESC);
 CREATE INDEX IF NOT EXISTS idx_expenses_category ON expenses(category);
 `)
 
+// --- Verträge (contracts) ---------------------------------------------------
+// Number is NULL while a draft; assigned gaplessly from the settings counter on
+// finalise (same posture as documents). agb_text is the AGB snapshot frozen at
+// finalise. value_cents is the headline contract value (net); small_business /
+// vat_rate snapshot the tax posture for displaying the gross figure on the PDF.
+db.exec(`
+CREATE TABLE IF NOT EXISTS contracts (
+  id             INTEGER PRIMARY KEY,
+  number         TEXT UNIQUE,             -- e.g. V-2026-0007 (NULL until finalised)
+  type           TEXT NOT NULL DEFAULT 'dienstvertrag',
+  lead_id        INTEGER REFERENCES leads(id) ON DELETE SET NULL,
+  document_id    INTEGER REFERENCES documents(id) ON DELETE SET NULL, -- originating Angebot/Rechnung
+  client_name    TEXT,
+  client_address TEXT,
+  client_zip     TEXT,
+  client_city    TEXT,
+  client_email   TEXT,
+  client_type    TEXT NOT NULL DEFAULT 'geschaeft',
+  title          TEXT,
+  intro          TEXT,                    -- Präambel
+  body           TEXT,                    -- Vertragsgegenstand / Leistungsbeschreibung
+  agb_text       TEXT,                    -- AGB snapshot, frozen on finalise (NULL while draft)
+  value_cents    INTEGER NOT NULL DEFAULT 0, -- Auftragswert (netto)
+  small_business INTEGER NOT NULL DEFAULT 1,
+  vat_rate       INTEGER NOT NULL DEFAULT 19,
+  payment_terms  TEXT,                    -- Vergütung / Zahlungsmodalitäten (Freitext)
+  start_date     TEXT,                    -- Laufzeitbeginn YYYY-MM-DD
+  end_date       TEXT,                    -- Laufzeitende YYYY-MM-DD (NULL = unbefristet)
+  notice_period  TEXT,                    -- Kündigungsfrist (Freitext)
+  status         TEXT NOT NULL DEFAULT 'entwurf',
+  issue_date     TEXT,                    -- set on finalise
+  signed_at      TEXT,                    -- date the contract was countersigned/accepted
+  signed_by      TEXT,                    -- name of the client's signatory
+  signed_note    TEXT,                    -- how it was accepted (in person, e-mail, …)
+  notes          TEXT,                    -- internal, never on the PDF
+  created_by     TEXT,
+  created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at     TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_contracts_status ON contracts(status);
+CREATE INDEX IF NOT EXISTS idx_contracts_lead ON contracts(lead_id);
+`)
+
+// AGB text + contract numbering live on the single-row settings table (added by a
+// late migration so existing databases pick them up). Constant defaults keep the
+// ADD COLUMN NOT NULL valid on SQLite.
+for (const col of [
+  'agb_text TEXT',
+  "contract_prefix TEXT NOT NULL DEFAULT 'V-'",
+  'contract_next INTEGER NOT NULL DEFAULT 1',
+  // Append the AGB as a final page to Angebot/Rechnung PDFs (0 = off).
+  'agb_attach_documents INTEGER NOT NULL DEFAULT 0',
+]) {
+  try {
+    db.exec(`ALTER TABLE settings ADD COLUMN ${col}`)
+  } catch {
+    // column already exists
+  }
+}
+
+// --- Leistungskatalog (services/products catalog) ---------------------------
+// Reusable line items so an Angebot / Rechnung / Serie / Vertrag position can be
+// picked instead of retyped. Items are copied BY VALUE into documents (no FK), so
+// editing or deleting a catalog item never mutates an already-written invoice.
+// Money in integer cents, like everywhere else.
+db.exec(`
+CREATE TABLE IF NOT EXISTS catalog_items (
+  id               INTEGER PRIMARY KEY,
+  name             TEXT NOT NULL,            -- short label shown in the picker
+  description      TEXT,                     -- the line text put on the document (defaults to name)
+  unit             TEXT,                     -- Std / Stk / Pauschal / Monat …
+  unit_price_cents INTEGER NOT NULL DEFAULT 0,
+  vat_rate         INTEGER NOT NULL DEFAULT 19,
+  sku              TEXT,                     -- Artikelnummer (optional)
+  category         TEXT,                     -- optional grouping
+  active           INTEGER NOT NULL DEFAULT 1,
+  sort             INTEGER NOT NULL DEFAULT 0,
+  notes            TEXT,
+  created_at       TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at       TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_catalog_active ON catalog_items(active, sort, name);
+`)
+
+// --- Zeiterfassung (time tracking) ------------------------------------------
+// Billable (or non-billable) time logged against a lead/client. Duration is kept
+// in whole minutes (no float drift); the billable amount is minutes/60 × the net
+// hourly rate. When entries are pulled into an invoice they get stamped with the
+// document_id + invoiced_at so they can never be billed twice.
+db.exec(`
+CREATE TABLE IF NOT EXISTS time_entries (
+  id              INTEGER PRIMARY KEY,
+  lead_id         INTEGER REFERENCES leads(id) ON DELETE SET NULL,
+  catalog_item_id INTEGER REFERENCES catalog_items(id) ON DELETE SET NULL,
+  document_id     INTEGER REFERENCES documents(id) ON DELETE SET NULL, -- set once invoiced
+  entry_date      TEXT NOT NULL,             -- YYYY-MM-DD
+  description     TEXT,
+  minutes         INTEGER NOT NULL DEFAULT 0,
+  rate_cents      INTEGER NOT NULL DEFAULT 0, -- net hourly rate
+  billable        INTEGER NOT NULL DEFAULT 1,
+  invoiced_at     TEXT,                       -- set when pulled into an invoice
+  created_by      TEXT,
+  created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_time_date ON time_entries(entry_date DESC);
+CREATE INDEX IF NOT EXISTS idx_time_lead ON time_entries(lead_id);
+CREATE INDEX IF NOT EXISTS idx_time_uninvoiced ON time_entries(billable, document_id);
+`)
+
+// Default net hourly rate, prefilled in the Zeiterfassung form (0 = none).
+try {
+  db.exec('ALTER TABLE settings ADD COLUMN default_hourly_rate_cents INTEGER NOT NULL DEFAULT 0')
+} catch {
+  // column already exists
+}
+
+// --- Kunden (customer registry) ---------------------------------------------
+// A central customer list so a client is maintained once and prefilled into
+// invoices, quotes, contracts and recurring templates — instead of retyping. This
+// is additive (a new table + nullable customer_id links); the flat lead row is
+// untouched. Documents copy the client fields BY VALUE at create time, so editing
+// a customer later never rewrites an issued document.
+db.exec(`
+CREATE TABLE IF NOT EXISTS customers (
+  id            INTEGER PRIMARY KEY,
+  name          TEXT NOT NULL,            -- Firma oder Name
+  contact_name  TEXT,                     -- Ansprechpartner
+  address       TEXT,
+  zip           TEXT,
+  city          TEXT,
+  email         TEXT,
+  phone         TEXT,
+  vat_id        TEXT,                      -- USt-IdNr.
+  client_type   TEXT NOT NULL DEFAULT 'geschaeft',
+  payment_terms INTEGER,                   -- Zahlungsziel override (NULL = settings default)
+  lead_id       INTEGER REFERENCES leads(id) ON DELETE SET NULL,
+  notes         TEXT,
+  active        INTEGER NOT NULL DEFAULT 1,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_customers_active ON customers(active, name);
+`)
+
+// Link the billing entities back to a customer (nullable, additive). Set when a
+// document/contract/template is created from a customer; the client_* snapshot
+// still carries the address so the link is convenience, not a dependency.
+for (const stmt of [
+  'ALTER TABLE documents ADD COLUMN customer_id INTEGER REFERENCES customers(id) ON DELETE SET NULL',
+  'ALTER TABLE contracts ADD COLUMN customer_id INTEGER REFERENCES customers(id) ON DELETE SET NULL',
+  'ALTER TABLE recurring_invoices ADD COLUMN customer_id INTEGER REFERENCES customers(id) ON DELETE SET NULL',
+]) {
+  try {
+    db.exec(stmt)
+  } catch {
+    // column already exists
+  }
+}
+
+// --- Bankabgleich (CAMT.053 reconciliation) ---------------------------------
+// One row per imported booked bank entry. ext_ref is the bank's own reference
+// (AcctSvcrRef/NtryRef) or a content hash when none — UNIQUE so re-importing the
+// same statement is idempotent (a transaction is recorded once). A matched credit
+// links to the invoice (document_id) and the payment row it produced (payment_id).
+db.exec(`
+CREATE TABLE IF NOT EXISTS bank_transactions (
+  id            INTEGER PRIMARY KEY,
+  ext_ref       TEXT NOT NULL UNIQUE,
+  booked_on     TEXT,                       -- YYYY-MM-DD
+  amount_cents  INTEGER NOT NULL DEFAULT 0,
+  direction     TEXT NOT NULL DEFAULT 'credit', -- credit | debit
+  remittance    TEXT,                       -- Verwendungszweck
+  counterparty  TEXT,                       -- payer/payee name
+  document_id   INTEGER REFERENCES documents(id) ON DELETE SET NULL,
+  payment_id    INTEGER REFERENCES payments(id) ON DELETE SET NULL,
+  status        TEXT NOT NULL DEFAULT 'unmatched', -- matched | unmatched | ignored
+  created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_bank_status ON bank_transactions(status, booked_on DESC);
+`)
+
 // Basiszinssatz (%) used for §288 BGB Verzugszinsen (configurable; changes
 // each Jan/Jul). B2B default rate = base + 9 pp. Added after the AI release.
 try {
@@ -755,6 +960,13 @@ export interface SettingsRow {
   smtp_from?: string | null
   scraper_model?: string | null
   scraper_ai_api_key_enc?: string | null
+  // AGB text + contract numbering (added by a late migration).
+  agb_text?: string | null
+  contract_prefix?: string
+  contract_next?: number
+  agb_attach_documents?: number
+  // Zeiterfassung default rate (added by a late migration).
+  default_hourly_rate_cents?: number
 }
 
 export interface MahnungRow {
@@ -774,6 +986,7 @@ export interface DocumentRow {
   kind: string
   number: string | null
   lead_id: number | null
+  customer_id: number | null
   client_name: string | null
   client_address: string | null
   client_zip: string | null
@@ -808,6 +1021,41 @@ export interface PaymentRow {
   created_at: string
 }
 
+export interface ContractRow {
+  id: number
+  number: string | null
+  type: string
+  lead_id: number | null
+  customer_id: number | null
+  document_id: number | null
+  client_name: string | null
+  client_address: string | null
+  client_zip: string | null
+  client_city: string | null
+  client_email: string | null
+  client_type: string
+  title: string | null
+  intro: string | null
+  body: string | null
+  agb_text: string | null
+  value_cents: number
+  small_business: number
+  vat_rate: number
+  payment_terms: string | null
+  start_date: string | null
+  end_date: string | null
+  notice_period: string | null
+  status: string
+  issue_date: string | null
+  signed_at: string | null
+  signed_by: string | null
+  signed_note: string | null
+  notes: string | null
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
 export interface ExpenseRow {
   id: number
   vendor: string | null
@@ -839,6 +1087,7 @@ export interface RecurringInvoiceRow {
   client_email: string | null
   client_type: string
   lead_id: number | null
+  customer_id: number | null
   title: string | null
   intro: string | null
   notes: string | null
@@ -862,6 +1111,71 @@ export interface DocumentItemRow {
   unit: string | null
   unit_price_cents: number
   sort: number
+}
+
+export interface CustomerRow {
+  id: number
+  name: string
+  contact_name: string | null
+  address: string | null
+  zip: string | null
+  city: string | null
+  email: string | null
+  phone: string | null
+  vat_id: string | null
+  client_type: string
+  payment_terms: number | null
+  lead_id: number | null
+  notes: string | null
+  active: number
+  created_at: string
+  updated_at: string
+}
+
+export interface BankTransactionRow {
+  id: number
+  ext_ref: string
+  booked_on: string | null
+  amount_cents: number
+  direction: string
+  remittance: string | null
+  counterparty: string | null
+  document_id: number | null
+  payment_id: number | null
+  status: string
+  created_at: string
+}
+
+export interface TimeEntryRow {
+  id: number
+  lead_id: number | null
+  catalog_item_id: number | null
+  document_id: number | null
+  entry_date: string
+  description: string | null
+  minutes: number
+  rate_cents: number
+  billable: number
+  invoiced_at: string | null
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface CatalogItemRow {
+  id: number
+  name: string
+  description: string | null
+  unit: string | null
+  unit_price_cents: number
+  vat_rate: number
+  sku: string | null
+  category: string | null
+  active: number
+  sort: number
+  notes: string | null
+  created_at: string
+  updated_at: string
 }
 
 export interface AuditRow {

@@ -1,5 +1,6 @@
 import { db, type RecurringInvoiceRow } from './db'
 import { getDocument, replaceItems, type DocItemInput, type FullDocument } from './documents'
+import { getCustomer } from './customers'
 
 // Serienrechnungen (recurring invoices). A template carries the client, the line
 // items and a cadence; each period it spawns a *draft* Rechnung (no number, no
@@ -37,6 +38,7 @@ export interface RecurringInput {
   client_email?: string | null
   client_type?: string | null
   lead_id?: number | null
+  customer_id?: number | null
   title?: string | null
   intro?: string | null
   notes?: string | null
@@ -70,25 +72,29 @@ export function getRecurring(id: number): RecurringInvoiceRow | null {
 
 export function createRecurring(input: RecurringInput): RecurringInvoiceRow {
   const next_run = input.next_run || new Date().toISOString().slice(0, 10)
+  // Prefill precedence: explicit field > linked customer.
+  const customer = input.customer_id != null ? getCustomer(Number(input.customer_id)) : null
+  const clientType = input.client_type ?? customer?.client_type ?? 'geschaeft'
   const info = db
     .prepare(
       `INSERT INTO recurring_invoices
         (client_name, client_address, client_zip, client_city, client_email, client_type,
-         lead_id, title, intro, notes, items, small_business, vat_rate, cadence, next_run, active,
+         lead_id, customer_id, title, intro, notes, items, small_business, vat_rate, cadence, next_run, active,
          include_payment_link)
        VALUES
         (@client_name, @client_address, @client_zip, @client_city, @client_email, @client_type,
-         @lead_id, @title, @intro, @notes, @items, @small_business, @vat_rate, @cadence, @next_run, @active,
+         @lead_id, @customer_id, @title, @intro, @notes, @items, @small_business, @vat_rate, @cadence, @next_run, @active,
          @include_payment_link)`,
     )
     .run({
-      client_name: input.client_name ?? null,
-      client_address: input.client_address ?? null,
-      client_zip: input.client_zip ?? null,
-      client_city: input.client_city ?? null,
-      client_email: input.client_email ?? null,
-      client_type: input.client_type === 'privat' ? 'privat' : 'geschaeft',
-      lead_id: input.lead_id ?? null,
+      client_name: input.client_name ?? customer?.name ?? null,
+      client_address: input.client_address ?? customer?.address ?? null,
+      client_zip: input.client_zip ?? customer?.zip ?? null,
+      client_city: input.client_city ?? customer?.city ?? null,
+      client_email: input.client_email ?? customer?.email ?? null,
+      client_type: clientType === 'privat' ? 'privat' : 'geschaeft',
+      lead_id: input.lead_id ?? customer?.lead_id ?? null,
+      customer_id: customer?.id ?? null,
       title: input.title ?? null,
       intro: input.intro ?? null,
       notes: input.notes ?? null,
@@ -149,14 +155,15 @@ export function runRecurring(id: number, today: string = new Date().toISOString(
   const info = db
     .prepare(
       `INSERT INTO documents
-        (kind, lead_id, client_name, client_address, client_zip, client_city, client_email,
+        (kind, lead_id, customer_id, client_name, client_address, client_zip, client_city, client_email,
          client_type, title, intro, notes, small_business, vat_rate, include_payment_link)
        VALUES
-        ('rechnung', @lead_id, @client_name, @client_address, @client_zip, @client_city, @client_email,
+        ('rechnung', @lead_id, @customer_id, @client_name, @client_address, @client_zip, @client_city, @client_email,
          @client_type, @title, @intro, @notes, @small_business, @vat_rate, @include_payment_link)`,
     )
     .run({
       lead_id: tmpl.lead_id,
+      customer_id: tmpl.customer_id,
       client_name: tmpl.client_name,
       client_address: tmpl.client_address,
       client_zip: tmpl.client_zip,

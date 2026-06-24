@@ -12,13 +12,20 @@ The modules, behind one login:
 
 - **KI** — a copilot that operates the rest of the suite through the same audited
   tools the UI uses: find and qualify leads, move pipeline stages, draft
-  outreach, build invoices, all in German.
+  outreach, build invoices, manage the service catalog and customer registry, log
+  time and turn it into a draft invoice, and draft/finalise contracts — all in German.
 - **Leads** — a scraper finds local businesses with dated websites and scores how
   dated they are, then drops them into a CRM pipeline (kanban + table, stages,
   tags, notes, `.xlsx` import, dedupe by domain). Each lead can be qualified and
   have outreach drafted by the AI.
+- **Kunden** — a central customer registry. Maintain a client once (address, USt-IdNr.,
+  type, default payment term) and create a prefilled Angebot, Rechnung or Vertrag for
+  them in one click. Documents keep their own copy, so editing a customer never
+  rewrites issued papers.
 - **Übersicht** — a dashboard of live KPIs: open and overdue amounts, paid totals,
-  a 12-month revenue chart, the pipeline by stage and lead conversion.
+  a 12-month revenue chart, the pipeline by stage and lead conversion, unbilled
+  billable time, active contracts and their value, and a reminder list of contracts
+  whose term ends within 60 days.
 - **Rechnungen** — Angebote and Rechnungen with line items and a print-ready PDF.
   A finalised invoice is a ZUGFeRD / Factur-X e-invoice (PDF/A-3 with embedded
   EN 16931 XML), Kleinunternehmer (§19 UStG) aware, with gapless numbering and a
@@ -28,6 +35,25 @@ The modules, behind one login:
 - **Serienrechnungen** — recurring invoices: a template + cadence (monthly /
   quarterly / yearly) produces a draft Rechnung each period for you to review and
   finalise. Nothing is auto-sent.
+- **Leistungskatalog** — a catalog of reusable services/products with net price,
+  unit and USt. Pick a line from it ("+ Aus Katalog") in the Angebot, Rechnung and
+  Serien editors instead of retyping; managed under Settings. Lines are copied in,
+  so revising the catalog never rewrites an issued invoice.
+- **Zeiterfassung** — track billable (or non-billable) time against a lead, by the
+  hour at a net rate (default rate + catalog rates prefilled). Select unbilled
+  entries and turn them into a draft Rechnung in one click — each entry becomes a
+  line (hours × rate) and is marked invoiced so it can't be billed twice.
+- **Verträge** — contracts (Dienst-, Werk-, Wartungsvertrag, Auftragsbestätigung,
+  Rahmenvertrag, AVV …) with parties, scope, remuneration, term and notice. Your
+  AGB live under Settings and are *frozen onto* a contract when it's finalised
+  (the terms in force at signature govern), so editing them later never changes an
+  issued contract. Gapless numbering, a print-ready multi-page PDF with signature
+  block, e-mail to the client for signature, and an acceptance record (aktiv once
+  countersigned). Nothing is auto-sent.
+- **Bank** — import a CAMT.053 bank statement and the incoming payments are matched
+  to your open invoices automatically (by the invoice number in the Verwendungszweck,
+  or a unique amount); you confirm each match and the payments are booked. Re-importing
+  a statement is safe — each transaction is recorded once.
 - **Offene Posten** — overdue invoices with one-click Mahnungen, §288 BGB
   Verzugszinsen and the €40 Pauschale (B2B only; private-customer invoices are
   handled correctly). Interest accrues on the still-open amount.
